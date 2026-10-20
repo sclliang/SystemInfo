@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <FluentUISdk Condition="'$(FluentUISdk)' == ''">$(MSBuildThisFileDirectory)..\FluentUI\sdk</FluentUISdk>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(FluentUISdk)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(FluentUISdk)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>FluentUI.lib;d2d1.lib;dwrite.lib;d3d11.lib;dxgi.lib;dxguid.lib;windowscodecs.lib;winhttp.lib;uiautomationcore.lib;ole32.lib;oleaut32.lib;comctl32.lib;uxtheme.lib;dwmapi.lib;imm32.lib;advapi32.lib;uuid.lib;dcomp.lib;shell32.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <Target Name="CheckFluentUISdk" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(FluentUISdk)\lib\FluentUI.lib')" Text="FluentUI SDK not found. Set FluentUISdk to the SDK directory (default: ..\FluentUI\sdk)."/>
+  </Target>
+</Project>
