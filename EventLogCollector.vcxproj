@@ -9,6 +9,10 @@
     <ProjectGuid>{F5DE8D36-859B-4CEE-902E-8BE0E27CA2F3}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>EventLogCollector</RootNamespace>
+    <Authors>sclliang</Authors>
+    <Company>sixunited</Company>
+    <Copyright>Copyright (c) 2026 sixunited. Author: sclliang</Copyright>
+    <Version>1.1.0.0</Version>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>
@@ -28,7 +32,9 @@
     <TargetName>EventLogCollector</TargetName>
     <TargetName Condition="'$(UiValidation)' == 'true'">EventLogCollector.UiSmoke</TargetName>
     <TargetName Condition="'$(CoreValidation)' == 'true'">EventLogCollector.CoreSmoke</TargetName>
+    <TargetName Condition="'$(DiagnosticsValidation)' == 'true'">EventLogCollector.DiagnosticsSmoke</TargetName>
     <IntDir Condition="'$(CoreValidation)' == 'true'">$(ProjectDir)build\obj\Collector\$(Platform)\$(Configuration)\core\</IntDir>
+    <IntDir Condition="'$(DiagnosticsValidation)' == 'true'">$(ProjectDir)build\obj\Collector\$(Platform)\$(Configuration)\diagnostics\</IntDir>
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
   <ItemDefinitionGroup>
@@ -53,28 +59,32 @@
     <ResourceCompile><AdditionalIncludeDirectories>$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ResourceCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>wevtapi.lib;comctl32.lib;uxtheme.lib;advapi32.lib;shell32.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>wevtapi.lib;wbemuuid.lib;setupapi.lib;cfgmgr32.lib;powrprof.lib;comctl32.lib;uxtheme.lib;advapi32.lib;shell32.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <LinkTimeCodeGeneration>UseFastLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <EnableCOMDATFolding Condition="'$(Configuration)' == 'Release'">true</EnableCOMDATFolding>
       <OptimizeReferences Condition="'$(Configuration)' == 'Release'">true</OptimizeReferences>
       <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
-      <UACExecutionLevel Condition="'$(UiValidation)' == 'true' Or '$(CoreValidation)' == 'true'">AsInvoker</UACExecutionLevel>
+      <UACExecutionLevel Condition="'$(UiValidation)' == 'true' Or '$(CoreValidation)' == 'true' Or '$(DiagnosticsValidation)' == 'true'">AsInvoker</UACExecutionLevel>
     </Link>
     <Manifest><AdditionalManifestFiles>$(ProjectDir)src\app.manifest;%(AdditionalManifestFiles)</AdditionalManifestFiles></Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="src\App.cpp" Condition="'$(UiValidation)' != 'true'"/>
+    <ClCompile Include="src\App.cpp" Condition="'$(UiValidation)' != 'true' And '$(DiagnosticsValidation)' != 'true'"/>
+    <ClCompile Include="tests\DiagnosticsSmoke.cpp" Condition="'$(DiagnosticsValidation)' == 'true'"/>
     <ClCompile Include="tests\UiSmoke.cpp" Condition="'$(UiValidation)' == 'true'"/>
     <ClCompile Include="src\CommandLine.cpp"/>
     <ClCompile Include="src\EventLogService.cpp"/>
     <ClCompile Include="src\Collector.cpp"/>
+    <ClCompile Include="src\Diagnostics.cpp"/>
+    <ClCompile Include="src\SystemSnapshot.cpp"/>
     <ClCompile Include="src\CollectorWindow.cpp"/>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\CommandLine.h"/>
     <ClInclude Include="src\EventLogService.h"/>
     <ClInclude Include="src\Collector.h"/>
+    <ClInclude Include="src\Diagnostics.h"/>
     <ClInclude Include="src\CollectorWindow.h"/>
     <ClInclude Include="src\resource.h"/>
   </ItemGroup>

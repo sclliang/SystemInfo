@@ -88,13 +88,13 @@ int ParseLevel(std::wstring value) {
 } // namespace
 
 std::wstring CommandLineHelp() {
-    return LR"HELP(EventLogCollector 1.0.0.0 | sixunited | Author: sclliang
+    return LR"HELP(EventLogCollector 1.1.0.0
 Windows Event Log Collector (Win32 + FluentUI)
 
 Usage:
-  EventLogCollector.exe                         Collect five Windows logs with progress UI
-  EventLogCollector.exe gui                     Collect five Windows logs with progress UI
-  EventLogCollector.exe collect [--output DIR] [--json]
+  EventLogCollector.exe                         Collect logs and diagnostics with progress UI
+  EventLogCollector.exe gui                     Collect logs and diagnostics with progress UI
+  EventLogCollector.exe collect [--output DIR] [--days N] [--include-large-dumps] [--power] [--json]
   EventLogCollector.exe channels [--json]        List local event channels
   EventLogCollector.exe list [options]           Display events, newest first
   EventLogCollector.exe export [options]         Export matching events
@@ -102,11 +102,18 @@ Usage:
   EventLogCollector.exe --help | --version | --licenses
 
 Collection:
-  Collect System, Application, Security, Setup, and ForwardedEvents as EVTX.
-  Default directory: Log next to the EXE, regardless of working directory.
-  File names include a timestamp. Existing collections are preserved.
-  --output DIR       Override the collection directory (created if needed)
-  --json             Emit a machine-readable per-channel collection result
+  Collect five complete event channels, recent dumps and WER reports, hardware,
+  devices, drivers, dump settings, installation logs, diagnostic channels and a timeline.
+  Each run creates a NEW Collection_timestamp directory under Log next to the EXE.
+  --output DIR       Override the parent directory (created if needed)
+  --days N           Recent file/diagnostic event window, 1..365 (default 7)
+                     The five standard event channels are always exported in full.
+  --include-large-dumps
+                     Include configured system dump; raise dump limits from 64/256 MiB
+                     per-file/total to 4/8 GiB. Skipped files remain in the index.
+  --power            Also generate applicable powercfg reports (60 s per command)
+  --json             Emit the result also saved as manifest.json (schema version 2)
+  Missing optional evidence and documented skips are not collection failures.
 
 Source (list/export):
   --channel NAME      Local channel, default: System
@@ -157,15 +164,16 @@ int RunCommandLine(const std::vector<std::wstring>& args) {
         if ((command == L"--help" || command == L"-h" || command == L"/?" || command == L"help") && args.size() == 1) {
             WriteOutput(CommandLineHelp()); return 0;
         }
-        if (command == L"--version" && args.size() == 1) { WriteOutput(L"EventLogCollector 1.0.0.0\n"); return 0; }
+        if (command == L"--version" && args.size() == 1) { WriteOutput(L"EventLogCollector 1.1.0.0\n"); return 0; }
         if (command == L"--licenses" && args.size() == 1) { WriteOutput(std::wstring(fluent::thirdPartyNotices())); return 0; }
         if (command != L"channels" && command != L"list" && command != L"export" && command != L"clear" && command != L"collect")
             throw UsageError(L"Unknown command: " + command);
         if (args.size() == 2 && args[1] == L"--help") { WriteOutput(CommandLineHelp()); return 0; }
 
-        const std::set<std::wstring> flags{L"--yes", L"--overwrite", L"--json"};
+        const std::set<std::wstring> flags{L"--yes", L"--overwrite", L"--json", L"--include-large-dumps", L"--power"};
         const std::set<std::wstring> known{L"--channel", L"--file", L"--level", L"--id", L"--provider", L"--hours",
-            L"--query", L"--limit", L"--format", L"--output", L"--backup", L"--yes", L"--overwrite", L"--json"};
+            L"--query", L"--limit", L"--format", L"--output", L"--backup", L"--yes", L"--overwrite", L"--json",
+            L"--days", L"--include-large-dumps", L"--power"};
         std::map<std::wstring, std::wstring> options;
         for (size_t i = 1; i < args.size(); ++i) {
             const auto key = args[i];
@@ -182,19 +190,27 @@ int RunCommandLine(const std::vector<std::wstring>& args) {
         const std::set<std::wstring> readOptions{L"--channel", L"--file", L"--level", L"--id", L"--provider", L"--hours",
             L"--query", L"--limit", L"--format", L"--output", L"--overwrite"};
         for (const auto& pair : options) {
-            bool allowed = command == L"collect" ? (pair.first == L"--output" || pair.first == L"--json") :
+            bool allowed = command == L"collect" ? (pair.first == L"--output" || pair.first == L"--json" ||
+                pair.first == L"--days" || pair.first == L"--include-large-dumps" || pair.first == L"--power") :
                 command == L"channels" ? pair.first == L"--json" : command == L"clear" ?
                 (pair.first == L"--channel" || pair.first == L"--yes" || pair.first == L"--backup") : readOptions.count(pair.first) != 0;
             if (!allowed) throw UsageError(pair.first + L" is not valid for " + command);
         }
         if (command == L"collect") {
-            const auto result = CollectWindowsLogs(has(L"--output") ? options[L"--output"] : L"");
+            CollectionOptions collection;
+            if (has(L"--days")) {
+                collection.days = static_cast<unsigned>(Number(options[L"--days"], L"--days", 365));
+                if (!collection.days) throw UsageError(L"--days must be between 1 and 365.");
+            }
+            collection.includeLargeDumps = has(L"--include-large-dumps"); collection.powerReports = has(L"--power");
+            const auto result = CollectWindowsLogs(has(L"--output") ? options[L"--output"] : L"", {}, nullptr, collection);
             if (has(L"--json")) WriteOutput(CollectionJson(result));
             else {
-                for (const auto& log : result.logs)
-                    WriteOutput((log.state == CollectionState::Saved ? L"[OK] " : L"[FAILED] ") + log.channel + L": " +
-                        (log.state == CollectionState::Saved ? log.path : log.message) + L"\n");
-                WriteOutput(L"Collected " + std::to_wstring(result.saved()) + L" / 5 logs. Directory: " + result.directory + L"\n");
+                for (const auto* item : CollectionEntries(result))
+                    WriteOutput(L"[" + CollectionStateName(item->state) + L"] " + item->channel + L": " +
+                        (item->state == CollectionState::Saved ? item->path : item->message) + L"\n");
+                WriteOutput(L"Saved " + std::to_wstring(result.saved()) + L" / " + std::to_wstring(result.total()) +
+                    L" items. Directory: " + result.directory + L"\nManifest: " + result.manifestPath + L"\n");
             }
             return result.success() ? 0 : result.cancelled ? 5 : 4;
         }

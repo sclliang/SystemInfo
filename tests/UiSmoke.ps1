@@ -14,7 +14,11 @@ $exe = Join-Path $projectRoot 'build\x64\Release\EventLogCollector.UiSmoke.exe'
 $cases = @(
     @{Name='collector-loading'; Args=@('--scenario','loading')},
     @{Name='collector-success'; Args=@('--scenario','success')},
+    @{Name='collector-diagnostics'; Args=@('--scenario','diagnostics')},
     @{Name='collector-failure'; Args=@('--scenario','failure')},
+    @{Name='collector-partial'; Args=@('--scenario','partial')},
+    @{Name='collector-cancelled'; Args=@('--scenario','cancelled')},
+    @{Name='collector-manifest-failure'; Args=@('--scenario','manifest-failure')},
     @{Name='collector-scaled'; Args=@('--scenario','success','--scale','1.25')}
 )
 foreach ($case in $cases) {

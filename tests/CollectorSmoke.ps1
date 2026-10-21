@@ -40,7 +40,7 @@ function Invoke-Collector([string[]]$Arguments) {
     try {
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Collector timed out.' }
+        if (-not $process.WaitForExit(180000)) { $process.Kill(); throw 'Collector timed out.' }
         return [pscustomobject]@{Code=$process.ExitCode; Out=$stdout.Result; Err=$stderr.Result}
     } finally { $process.Dispose() }
 }
@@ -48,13 +48,20 @@ $first = Invoke-Collector @('collect','--json')
 $result = $first.Out | ConvertFrom-Json
 $channels = @('System','Application','Security','Setup','ForwardedEvents')
 Assert (($result.logs.channel -join ',') -eq ($channels -join ',')) 'Collects the five standard Windows channels in order'
-Assert ($result.directory -eq (Join-Path $deployment 'Log')) 'Default Log directory is next to the EXE, independent of the working directory'
+Assert ($result.rootDirectory -eq (Join-Path $deployment 'Log') -and
+    (Split-Path $result.directory -Parent) -eq $result.rootDirectory -and
+    (Split-Path $result.directory -Leaf) -like 'Collection_*') 'Each run has an independent directory under Log next to the EXE'
 Assert (-not (Test-Path -LiteralPath (Join-Path $working 'Log'))) 'No accidental Log directory in the caller working directory'
 $saved = @($result.logs | Where-Object status -eq 'saved')
 $failed = @($result.logs | Where-Object status -eq 'failed')
 Assert ($saved.Count -ge 3 -and ($saved.Count + $failed.Count) -eq 5) 'All channels are attempted and readable logs are saved'
-Assert ($result.success -eq ($saved.Count -eq 5)) 'Success is reported only when all five logs are saved'
-Assert ($first.Code -eq $(if ($saved.Count -eq 5) {0} else {4})) 'Process exit code matches the actual collection result'
+Assert ($result.schemaVersion -eq 2 -and $result.diagnostics.Count -eq 11) 'Manifest includes all eleven diagnostic categories'
+$incomplete = @(@($result.logs) + @($result.diagnostics) | Where-Object status -notin @('saved','not_found','skipped'))
+Assert ($result.success -eq ($incomplete.Count -eq 0 -and $result.manifestSaved)) 'Success includes diagnostic and manifest failures, while allowing absent optional evidence'
+Assert ($first.Code -eq $(if ($result.success) {0} else {4})) 'Process exit code matches the actual collection result'
+Assert ($result.manifestSaved -and (Get-Content -LiteralPath $result.manifestPath -Raw) -ceq $first.Out) 'Persisted manifest exactly matches CLI JSON'
+Assert (([datetime]$result.startedUtc).Kind -eq [DateTimeKind]::Utc -and ([datetime]$result.finishedUtc).Kind -eq [DateTimeKind]::Utc -and
+    $null -ne $result.utcOffsetMinutes) 'Collection records UTC boundaries and local timezone offset'
 $hashes = @{}
 foreach ($log in $saved) {
     $file = Get-Item -LiteralPath $log.path
@@ -69,18 +76,52 @@ foreach ($log in $saved) {
     $hashes[$file.FullName] = (Get-FileHash -LiteralPath $file.FullName).Hash
 }
 foreach ($log in $failed) { Assert ($log.errorCode -ne 0 -and $log.error.Length -gt 0) "Failure has a reason: $($log.channel)" }
-$second = Invoke-Collector @('collect','--json')
+foreach ($item in $result.diagnostics) {
+    Assert ($item.status -in @('saved','partial','failed','not_found','skipped')) "Diagnostic has a terminal status: $($item.channel)"
+    if ($item.path -and (Test-Path -LiteralPath $item.path -PathType Leaf)) {
+        $null = Get-Content -LiteralPath $item.path -Raw -Encoding utf8 | ConvertFrom-Json
+        Assert $true "Diagnostic JSON parses independently: $($item.channel)"
+        $hashes[$item.path] = (Get-FileHash -LiteralPath $item.path).Hash
+    }
+    if ($item.status -in @('failed','partial')) {
+        Assert ($item.errorCode -ne 0 -and $item.error.Length -gt 0) "Diagnostic failure has a reason: $($item.channel)"
+    }
+}
+$system = $result.diagnostics | Where-Object channel -eq 'SystemInfo'
+if ($system.status -in @('saved','partial')) {
+    $snapshot = Get-Content -LiteralPath $system.path -Raw | ConvertFrom-Json
+    $os = $snapshot.sections | Where-Object class -eq 'Win32_OperatingSystem'
+    Assert ($os.rows.Count -gt 0 -and $os.rows[0].BuildNumber.Length -gt 0) 'Hardware snapshot contains the actual operating system build'
+}
+$devices = $result.diagnostics | Where-Object channel -eq 'Devices'
+if ($devices.status -in @('saved','partial')) {
+    $deviceSnapshot = Get-Content -LiteralPath $devices.path -Raw | ConvertFrom-Json
+    Assert ($deviceSnapshot.devices.Count -gt 0 -and $deviceSnapshot.devices[0].instanceId.Length -gt 0) 'Device inventory contains native device identities and status fields'
+}
+$timelineItem = $result.diagnostics | Where-Object channel -eq 'Timeline'
+if ($timelineItem.status -in @('saved','partial')) {
+    $timeline = Get-Content -LiteralPath $timelineItem.path -Raw | ConvertFrom-Json
+    $ordered = $true
+    for ($i = 1; $i -lt $timeline.events.Count; $i++) { if ([datetime]$timeline.events[$i].timeUtc -lt [datetime]$timeline.events[$i-1].timeUtc) { $ordered = $false } }
+    Assert $ordered 'Timeline events are in chronological order'
+    Assert (@($timeline.events | Where-Object { -not $_.provider -or -not $_.xml -or -not $_.timeUtc }).Count -eq 0) 'Timeline preserves event provider, UTC timestamp and original XML'
+}
+Assert (($result.diagnostics | Where-Object channel -eq 'PowerReports').status -eq 'skipped') 'Power reports are opt-in'
+$hashes[$result.manifestPath] = (Get-FileHash -LiteralPath $result.manifestPath).Hash
+$second = Invoke-Collector @('collect','--days','1','--json')
 $again = $second.Out | ConvertFrom-Json
 Assert (@($again.logs.path | Where-Object { $_ -in $result.logs.path }).Count -eq 0) 'Repeated collections use distinct file names'
+Assert ($again.directory -ne $result.directory -and $again.options.days -eq 1) 'Recent evidence window is configurable without reusing a run directory'
 foreach ($path in $hashes.Keys) { Assert ((Get-FileHash -LiteralPath $path).Hash -eq $hashes[$path]) 'Previous collection is preserved' }
-Assert (@(Get-ChildItem -LiteralPath $result.directory -Filter '*.tmp*').Count -eq 0) 'No temporary export files remain'
+Assert (@(Get-ChildItem -LiteralPath $result.directory -Filter '*.tmp*' -Recurse -File).Count -eq 0) 'No temporary diagnostic or export files remain'
 $blockingFile = Join-Path $working 'not-a-directory'
 Set-Content -LiteralPath $blockingFile -Value 'preserve me' -NoNewline
 $bad = Invoke-Collector @('collect','--output',$blockingFile,'--json')
 $badResult = $bad.Out | ConvertFrom-Json
 Assert ($bad.Code -eq 4 -and -not $badResult.success -and @($badResult.logs | Where-Object status -eq 'failed').Count -eq 5) 'Invalid output directory reports failure for all five logs'
 Assert ((Get-Content -LiteralPath $blockingFile -Raw) -eq 'preserve me') 'Invalid output does not alter the existing file'
-foreach ($args in @(@('collect','--channel','System'),@('collect','--output'),@('collect','--json','--json'))) {
+foreach ($args in @(@('collect','--channel','System'),@('collect','--output'),@('collect','--json','--json'),
+    @('collect','--days','0'),@('collect','--days','366'),@('collect','--days','abc'),@('list','--power'),@('export','--include-large-dumps'))) {
     $badUsage = Invoke-Collector $args
     Assert ($badUsage.Code -eq 2) 'Collection rejects unsupported or malformed arguments'
 }

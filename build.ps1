@@ -19,7 +19,7 @@ if ($Configuration -eq 'Release') {
     $executable = Join-Path $package 'EventLogCollector.exe'
     Copy-Item -LiteralPath (Join-Path $projectRoot 'build\x64\Release\EventLogCollector.exe') -Destination $executable -Force
     $version = (Get-Item -LiteralPath $executable).VersionInfo
-    if ($version.CompanyName -ne 'sixunited' -or $version.FileVersion -ne '1.0.0.0' -or $version.ProductVersion -ne '1.0.0.0' -or
+    if ($version.CompanyName -ne 'sixunited' -or $version.FileVersion -ne '1.1.0.0' -or $version.ProductVersion -ne '1.1.0.0' -or
         $version.ProductName -ne 'EventLogCollector' -or $version.InternalName -ne 'EventLogCollector' -or
         $version.FileDescription -ne 'Windows Event Log Collector' -or
         $version.OriginalFilename -ne 'EventLogCollector.exe' -or $version.LegalCopyright -ne 'Copyright (c) 2026 sixunited. Author: sclliang') {
