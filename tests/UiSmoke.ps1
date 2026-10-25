@@ -1,5 +1,6 @@
-param([switch]$SkipBuild)
+﻿param([switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'ProcessSupport.ps1')
 $projectRoot = Split-Path $PSScriptRoot -Parent
 if (-not $SkipBuild) {
     $locator = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -27,8 +28,8 @@ foreach ($case in $cases) {
     $info.UseShellExecute = $false
     $info.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
     $info.WorkingDirectory = $env:TEMP
-    $info.Environment['PATH'] = "$env:SystemRoot\System32;$env:SystemRoot"
-    foreach ($arg in @('--snapshot',$snapshot) + $case.Args) { $info.ArgumentList.Add($arg) }
+    $info.EnvironmentVariables['PATH'] = "$env:SystemRoot\System32;$env:SystemRoot"
+    Set-TestProcessArguments $info (@('--snapshot',$snapshot) + $case.Args)
     $process = [Diagnostics.Process]::Start($info)
     try {
         if (-not $process.WaitForExit(40000)) { $process.Kill(); throw "UI test timed out: $($case.Name)" }

@@ -1,6 +1,6 @@
 # EventLogCollector · 事件日志收集器
 
-C++20 / 原生 Win32 + FluentUI SDK，Windows 10 / 11 x64，版本 **1.1.0.0**。
+C++20 / 原生 Win32 + FluentUI SDK，Windows 10 / 11 x64，版本 **1.2.0.0**。
 
 ## 一键采集
 
@@ -21,7 +21,7 @@ C++20 / 原生 Win32 + FluentUI SDK，Windows 10 / 11 x64，版本 **1.1.0.0**�
 | 设备安装历史 | setupapi.dev.log、setupapi.dev.log.old、setupapi.app.log，保留滚动历史，不按近期时间筛掉旧安装日志 |
 | 专用诊断事件 | 设备、用户态驱动、代码完整性、Windows Update、启动与性能等八个候选通道；只读取存在且已启用的通道 |
 | 故障时间线 | 从本次已导出的 System、Application 和专用通道提取近期警告、错误及关机、重启、WHEA、WER 等事件，保留来源、ID、UTC/本地时间、消息与原始 XML |
-| 电源报告（可选） | 使用 --power 生成适用的电源状态、最后唤醒、请求、电池和 Modern Standby 报告 |
+| 电源与睡眠报告 | 默认保存电源状态、最后唤醒、请求文本，以及系统电源转换、电池和 Modern Standby 的适用 HTML 报告；--energy 额外生成现场能效 HTML |
 
 原始五个通道始终导出全量留存事件。近期转储、WER、专用事件和时间线默认使用 **7 天**范围，支持 --days 1..365。时间线使用采集开始时固定的 UTC 上界，按事件写入时间排序；事件 41、6008 等可能在重启后补记，不能将其写入时间直接当成故障发生时间。
 
@@ -44,10 +44,21 @@ package/
         ├── DumpConfiguration.json
         ├── DriverInstallation/index.json
         ├── DiagnosticEvents/index.json
-        └── Timeline.json
+        ├── Timeline.json
+        └── PowerReports/
+            ├── index.json
+            ├── system-power.html
+            ├── battery.html         （有电池时）
+            ├── sleep-study.html     （支持 Modern Standby 时）
+            ├── energy.html          （指定 --energy 时）
+            └── *.txt                （状态、唤醒、请求及命令原始输出）
 ~~~
 
-索引目录中按条件保存实际文件；没有找到证据时仍保存索引。电源采集未开启时不生成 PowerReports 目录。
+索引目录中按条件保存实际文件；没有找到证据时仍保存索引。电源报告默认开启，--no-power 可关闭且不生成 PowerReports 目录；旧参数 --power 仍兼容。
+
+系统电源转换报告使用 `/systempowerreport`，不调用本机新版 Windows 已标记弃用的 `/systemsleepdiagnostics`。历史 HTML 跟随 --days（默认 7 天）；系统电源转换和 SleepStudy 最多请求 28 天，电池报告使用指定天数。索引记录请求天数、实际传入的命令和适用性；实际历史取决于 Windows 已保留的数据，并不保证覆盖全部请求日期。无电池或不支持 Modern Standby 的设备跳过相应报告；权限不足和其他生成错误如实记录失败，不伪装为不支持。
+
+`--energy` 在其他采集结束后额外观察系统 **60 秒**，生成 energy.html。它用于现场能效分析，不代表故障前的历史；建议电脑空闲且关闭其他程序和文档时使用。取消或超时会终止工具并清理未完成的 HTML，保留已完成报告、命令输出及索引。
 
 ## 状态、限制与诊断边界
 
@@ -61,7 +72,7 @@ package/
 
 默认转储复制限制为单文件 **64 MiB**、三类来源合计 **256 MiB**；--include-large-dumps 同时允许复制配置的系统内存转储，并提升为单文件 **4 GiB**、合计 **8 GiB**。超过限额仍记录元数据。WER 非转储报告与安装日志单文件限制 **32 MiB**，合计 **128 MiB**。每类最多复制 100 个文件，近期文件优先。每类最多扫描 10000 个目录项，递归深度为 5；不会跟随源目录或文件的重解析点。
 
-时间线每个通道最多 5000 条、合计 20000 条，消息与 XML 合计最多 32M 个 UTF-16 字符；达到限额会明确标记部分完成，原始 EVTX 仍保留。WMI 每个查询的结果读取限时 20 秒，连接由 Windows WMI 的最大等待机制控制；电源工具每条命令限时 60 秒。
+时间线每个通道最多 5000 条、合计 20000 条，消息与 XML 合计最多 32M 个 UTF-16 字符；达到限额会明确标记部分完成，原始 EVTX 仍保留。WMI 每个查询的结果读取限时 20 秒，连接由 Windows WMI 的最大等待机制控制；常规电源命令限时 60 秒，energy 限时 120 秒，为采样和报告生成预留时间。
 
 所有采集读取源数据，不清除事件、不修改转储/分页文件/电源配置、不启用日志通道、不安装或卸载驱动。只有用户显式调用原有 clear 命令才会清除指定通道。
 
@@ -71,7 +82,7 @@ package/
 
 ## 运行与命令行
 
-FluentUI 与 C/C++ 运行库静态链接，字体、图标内嵌，发布程序是单 EXE；无需安装开发环境、VC++ 运行库或 bin 目录。系统快照使用 Windows 自带 WMI，设备状态使用 SetupAPI/Configuration Manager；仅在指定 --power 时启动系统目录中的 powercfg.exe。
+FluentUI 与 C/C++ 运行库静态链接，字体、图标内嵌，发布程序是单 EXE；无需安装开发环境、VC++ 运行库或 bin 目录。系统快照使用 Windows 自带 WMI，设备状态使用 SetupAPI/Configuration Manager；电源采集直接启动系统目录中的 powercfg.exe，不依赖 PATH 或工作目录。
 
 最终 EXE 的清单为 requireAdministrator。双击由 Windows 请求管理员权限；拒绝 UAC 不会开始采集。管理员也可能受到设备策略或文件 ACL 限制，实际结果会记录到清单。
 
@@ -84,8 +95,11 @@ FluentUI 与 C/C++ 运行库静态链接，字体、图标内嵌，发布程序�
 # 在指定位置创建独立采集目录，近期范围改为 14 天
 .\package\EventLogCollector.exe collect --output 'D:\Collected Logs' --days 14 --json | Out-String
 
-# 允许大转储，并追加适用的电源报告
-.\package\EventLogCollector.exe collect --include-large-dumps --power --json | Out-String
+# 允许大转储，并追加现场能效采样（额外约 60 秒）
+.\package\EventLogCollector.exe collect --include-large-dumps --energy --json | Out-String
+
+# 本次跳过全部电源报告
+.\package\EventLogCollector.exe collect --no-power --json | Out-String
 
 .\package\EventLogCollector.exe --help | Out-String
 ~~~
@@ -110,7 +124,7 @@ FluentUI 与 C/C++ 运行库静态链接，字体、图标内嵌，发布程序�
 
 SDK 默认位置为相邻项目 ../FluentUI/sdk。Release 自动发布到 package/EventLogCollector.exe。已安装 SDK 是 Release 静态库，因此 Debug 使用 /Od /Zi、/MT 和 _ITERATOR_DEBUG_LEVEL=0 保持 ABI 兼容。
 
-可执行文件和项目元数据：Author/Authors 为 sclliang，CompanyName/Company 为 sixunited，版权为 Copyright (c) 2026 sixunited. Author: sclliang，FileVersion / ProductVersion 为 1.1.0.0。界面不显示作者或版权归属，默认浅色且不跟随系统切换为深色。
+可执行文件和项目元数据：Author/Authors 为 sclliang，CompanyName/Company 为 sixunited，版权为 Copyright (c) 2026 sixunited. Author: sclliang，FileVersion / ProductVersion 为 1.2.0.0。界面不显示作者或版权归属，默认浅色且不跟随系统切换为深色。
 
 主要源码：Collector.* 编排采集与清单；Diagnostics.* 负责文件、专用事件、时间线和电源工具；SystemSnapshot.cpp 负责 WMI、设备与注册表；CollectorWindow.* 负责界面；EventLogService.* 封装事件 API；CommandLine.* 负责命令行。
 
@@ -129,8 +143,9 @@ Git 保存源码、图标、脚本和测试；FluentUI SDK 另行准备。build/
 # 隔离文件样本：时间、数量/大小限制、锁定文件、重解析点、取消和写入失败
 .\tests\DiagnosticsSmoke.ps1
 
-# 额外验证本机适用的 powercfg 报告及其权限/不适用结果
+# 验证本机默认电源 HTML 及其权限/不适用结果
 .\tests\PowerSmoke.ps1
+.\tests\PowerSmoke.ps1 -IncludeEnergy
 
 # 加载、完成、失败、部分完成、取消、清单失败、诊断行滚动与缩放
 .\tests\UiSmoke.ps1

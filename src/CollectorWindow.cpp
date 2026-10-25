@@ -244,8 +244,7 @@ namespace elm
                 }
                 value.diagnostics[0].state = value.diagnostics[1].state = CollectionState::NotFound;
                 value.diagnostics[0].message = L"近期未找到蓝屏转储，配置记录已保存。";
-                value.diagnostics.back().state = CollectionState::Skipped;
-                value.diagnostics.back().message = L"按需采集：命令行增加 --power。";
+                value.diagnostics.back().message = L"已保存系统电源报告；不适用的电池和 Modern Standby 报告已跳过。";
                 value.finished = true;
                 value.manifestSaved = true;
                 if (scenario == L"loading")

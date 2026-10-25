@@ -2,6 +2,7 @@
 #include <shellapi.h>
 #include <fstream>
 #include <stdexcept>
+#include <thread>
 
 namespace {
 namespace fs = std::filesystem;
@@ -24,6 +25,92 @@ const elm::CollectedFile* Find(const elm::CollectedLog& item, const wchar_t* suf
 }
 size_t Count(const elm::CollectedLog& item, elm::CollectionState state) {
     size_t count = 0; for (const auto& file : item.files) if (file.state == state) ++count; return count;
+}
+// The fixture executable can also act as a deterministic powercfg child process.
+int FakePower(int count, LPWSTR* args) {
+    const std::wstring command = args[1];
+    const auto scenario = fs::current_path().wstring();
+    const char log[] = "fixture power tool output\r\n";
+    DWORD written = 0;
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), log, sizeof(log) - 1, &written, nullptr);
+    if (command == L"/systempowerreport") {
+        if (scenario.find(L"UnsupportedPower") != std::wstring::npos) return ERROR_NOT_SUPPORTED;
+        if (scenario.find(L"DeniedPower") != std::wstring::npos) return ERROR_ACCESS_DENIED;
+        if (scenario.find(L"MissingPowerHtml") != std::wstring::npos) return 0;
+    }
+    fs::path output;
+    for (int i = 2; i + 1 < count; ++i) if (std::wstring(args[i]) == L"/output") output = args[i + 1];
+    if (!output.empty()) {
+        if (command == L"/systempowerreport" && scenario.find(L"EmptyPowerHtml") != std::wstring::npos) {
+            std::ofstream empty(output); return 0;
+        }
+        elm::WriteDiagnosticFile(output, L"<!doctype html><html><body>Fixture report</body></html>");
+        if (command == L"/energy" && (scenario.find(L"TimeoutPower") != std::wstring::npos || scenario.find(L"CancelPower") != std::wstring::npos)) {
+            elm::WriteDiagnosticFile(output.wstring() + L".started", L"started");
+            Sleep(30000);
+        }
+    }
+    return 0;
+}
+const elm::CollectedFile& PowerFile(const elm::CollectedLog& item, const wchar_t* command) {
+    for (const auto& file : item.files) if (file.source.find(command) != std::wstring::npos) return file;
+    throw std::runtime_error("Missing power command in fixture result");
+}
+void PowerFixtures(const fs::path& root) {
+    using namespace elm;
+    DiagnosticContext context;
+    wchar_t self[32768]{};
+    if (!GetModuleFileNameW(nullptr, self, static_cast<DWORD>(std::size(self)))) throw std::runtime_error("Fixture path");
+    context.powercfgExecutable = self;
+    FILETIME now{}; GetSystemTimeAsFileTime(&now); context.now = FileTimeValue(now);
+    context.output = root / L"Power 报告 with spaces";
+    CollectedLog basic; CollectPowerReports(basic, context);
+    Assert(basic.state == CollectionState::Saved && basic.files.size() == 7, L"Default power collection indexes all seven commands");
+    const auto& system = PowerFile(basic, L"/systempowerreport");
+    Assert(system.state == CollectionState::Saved && system.source.ends_with(L"/duration 7") && fs::exists(system.path) && system.bytes > 0,
+        L"Default system power HTML uses seven days and supports Unicode/spaces in paths");
+    Assert(PowerFile(basic, L"/energy").state == CollectionState::Skipped && !fs::exists(context.output / L"PowerReports" / L"energy.html"),
+        L"Default power collection does not perform live energy sampling");
+    auto capped = context; capped.output = root / L"CappedPower"; capped.options.days = 365; capped.options.energyReport = true;
+    CollectedLog cap; CollectPowerReports(cap, capped);
+    Assert(PowerFile(cap, L"/systempowerreport").source.ends_with(L"/duration 28") && PowerFile(cap, L"/sleepstudy").source.ends_with(L"/duration 28") &&
+        PowerFile(cap, L"/batteryreport").source.ends_with(L"/duration 365"), L"Transition reports cap at 28 days while battery history follows the requested window");
+    Assert(cap.files.back().source == L"powercfg /energy /duration 60" && cap.files.back().state == CollectionState::Saved,
+        L"Opt-in energy HTML is generated last with a 60-second sampling request");
+    auto off = context; off.output = root / L"DisabledPower"; off.options.powerReports = false;
+    CollectedLog skipped; CollectPowerReports(skipped, off);
+    Assert(skipped.state == CollectionState::Skipped && !fs::exists(off.output), L"Power opt-out creates no directory or reports");
+    for (const auto& scenario : {L"UnsupportedPower", L"DeniedPower", L"MissingPowerHtml", L"EmptyPowerHtml"}) {
+        auto failure = context; failure.output = root / scenario; failure.options.energyReport = true;
+        CollectedLog item; CollectPowerReports(item, failure);
+        const auto& file = PowerFile(item, L"/systempowerreport");
+        const bool unsupported = std::wstring(scenario) == L"UnsupportedPower";
+        Assert(file.state == (unsupported ? CollectionState::Skipped : CollectionState::Failed) && file.error && !file.message.empty(),
+            L"Unsupported, permission-denied, absent and empty reports have explicit distinct outcomes");
+        Assert(fs::file_size(file.path) == file.bytes && item.files.back().state == CollectionState::Saved && fs::exists(item.path),
+            L"Failures preserve command output with correct size and allow later reports to complete");
+    }
+    auto missingTool = context; missingTool.output = root / L"MissingPowerTool"; missingTool.powercfgExecutable = root / L"missing.exe";
+    CollectedLog missing; CollectPowerReports(missing, missingTool);
+    Assert(missing.state == CollectionState::Partial && PowerFile(missing, L"/systempowerreport").error == ERROR_FILE_NOT_FOUND && missing.files.size() == 7,
+        L"A process launch failure is indexed without abandoning other command decisions");
+    auto timeout = context; timeout.output = root / L"TimeoutPower"; timeout.options.energyReport = true; timeout.energyCommandTimeoutMs = 500;
+    CollectedLog timed; CollectPowerReports(timed, timeout);
+    Assert(timed.state == CollectionState::Partial && PowerFile(timed, L"/energy").error == ERROR_TIMEOUT &&
+        fs::exists(timeout.output / L"PowerReports" / L"energy.html.started") && !fs::exists(timeout.output / L"PowerReports" / L"energy.html"),
+        L"Timed-out energy process is stopped and its incomplete HTML is removed");
+    auto cancelled = context; cancelled.output = root / L"CancelPower"; cancelled.options.energyReport = true;
+    std::atomic_bool stop{false}; cancelled.cancel = &stop;
+    std::jthread trigger([&] {
+        for (unsigned i = 0; i < 500 && !fs::exists(cancelled.output / L"PowerReports" / L"energy.html.started"); ++i) Sleep(10);
+        stop = true;
+    });
+    bool threw = false; CollectedLog interrupted;
+    try { CollectPowerReports(interrupted, cancelled); } catch (const Error& error) { threw = error.code == ERROR_CANCELLED; }
+    trigger.join();
+    Assert(threw && PowerFile(interrupted, L"/energy").state == CollectionState::Cancelled && fs::exists(interrupted.path) &&
+        fs::exists(cancelled.output / L"PowerReports" / L"system-power.html") && !fs::exists(cancelled.output / L"PowerReports" / L"energy.html"),
+        L"Cancellation stops live energy sampling, persists the index and preserves completed HTML");
 }
 void Run(const fs::path& root) {
     using namespace elm;
@@ -110,11 +197,16 @@ void Run(const fs::path& root) {
     bool clean = true;
     for (const auto& entry : fs::recursive_directory_iterator(root)) if (entry.path().extension() == L".tmp") clean = false;
     Assert(clean, L"No temporary copy or JSON file remains");
+    PowerFixtures(root);
     WriteDiagnosticFile(root / L"report.txt", report);
 }
 }
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     int count = 0; auto args = CommandLineToArgvW(GetCommandLineW(), &count);
+    if (args && count >= 2 && args[1][0] == L'/') {
+        try { const int code = FakePower(count, args); LocalFree(args); return code; }
+        catch (...) { LocalFree(args); return ERROR_GEN_FAILURE; }
+    }
     if (!args || count != 2) { if (args) LocalFree(args); return 2; }
     const fs::path root = args[1]; LocalFree(args);
     try { Run(root); return 0; }

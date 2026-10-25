@@ -115,13 +115,13 @@ namespace elm
 
     std::wstring CommandLineHelp()
     {
-        return LR"HELP(EventLogCollector 1.1.0.0
-Windows Event Log Collector (Win32 + FluentUI)
+        return LR"HELP(EventLogCollector 1.2.0.0
+Windows Event Log and Diagnostic Collector (Win32 + FluentUI)
 
 Usage:
   EventLogCollector.exe                         Collect logs and diagnostics with progress UI
   EventLogCollector.exe gui                     Collect logs and diagnostics with progress UI
-  EventLogCollector.exe collect [--output DIR] [--days N] [--include-large-dumps] [--power] [--json]
+  EventLogCollector.exe collect [--output DIR] [--days N] [--include-large-dumps] [--no-power | --energy] [--json]
   EventLogCollector.exe channels [--json]        List local event channels
   EventLogCollector.exe list [options]           Display events, newest first
   EventLogCollector.exe export [options]         Export matching events
@@ -130,15 +130,21 @@ Usage:
 
 Collection:
   Collect five complete event channels, recent dumps and WER reports, hardware,
-  devices, drivers, dump settings, installation logs, diagnostic channels and a timeline.
+  devices, drivers, dump settings, installation logs, diagnostic channels, a timeline
+  and applicable powercfg HTML reports (system power, battery, Modern Standby).
   Each run creates a NEW Collection_timestamp directory under Log next to the EXE.
   --output DIR       Override the parent directory (created if needed)
   --days N           Recent file/diagnostic event window, 1..365 (default 7)
                      The five standard event channels are always exported in full.
+                     Power HTML reports use this window; power transitions/SleepStudy
+                     are capped at 28 days. Actual history depends on Windows retention.
   --include-large-dumps
                      Include configured system dump; raise dump limits from 64/256 MiB
                      per-file/total to 4/8 GiB. Skipped files remain in the index.
-  --power            Also generate applicable powercfg reports (60 s per command)
+  --no-power         Skip all power reports (otherwise enabled; 60 s per command)
+  --power            Compatibility flag: power reports are now enabled by default
+  --energy           Also sample energy efficiency for 60 s (120 s timeout), last.
+                     Run with the computer idle. Cannot be combined with --no-power.
   --json             Emit the result also saved as manifest.json (schema version 2)
   Missing optional evidence and documented skips are not collection failures.
 
@@ -198,7 +204,7 @@ In PowerShell, pipe stdout to Out-String when invoking interactively.
             }
             if (command == L"--version" && args.size() == 1)
             {
-                WriteOutput(L"EventLogCollector 1.1.0.0\n");
+                WriteOutput(L"EventLogCollector 1.2.0.0\n");
                 return 0;
             }
             if (command == L"--licenses" && args.size() == 1)
@@ -214,10 +220,10 @@ In PowerShell, pipe stdout to Out-String when invoking interactively.
                 return 0;
             }
 
-            const std::set<std::wstring> flags{L"--yes", L"--overwrite", L"--json", L"--include-large-dumps", L"--power"};
+            const std::set<std::wstring> flags{L"--yes", L"--overwrite", L"--json", L"--include-large-dumps", L"--power", L"--no-power", L"--energy"};
             const std::set<std::wstring> known{L"--channel", L"--file", L"--level", L"--id", L"--provider", L"--hours",
                                                L"--query", L"--limit", L"--format", L"--output", L"--backup", L"--yes", L"--overwrite", L"--json",
-                                               L"--days", L"--include-large-dumps", L"--power"};
+                                               L"--days", L"--include-large-dumps", L"--power", L"--no-power", L"--energy"};
             std::map<std::wstring, std::wstring> options;
             for (size_t i = 1; i < args.size(); ++i)
             {
@@ -242,7 +248,8 @@ In PowerShell, pipe stdout to Out-String when invoking interactively.
             for (const auto &pair : options)
             {
                 bool allowed = command == L"collect"    ? (pair.first == L"--output" || pair.first == L"--json" ||
-                                                           pair.first == L"--days" || pair.first == L"--include-large-dumps" || pair.first == L"--power")
+                                                           pair.first == L"--days" || pair.first == L"--include-large-dumps" || pair.first == L"--power" ||
+                                                           pair.first == L"--no-power" || pair.first == L"--energy")
                                : command == L"channels" ? pair.first == L"--json"
                                : command == L"clear"    ? (pair.first == L"--channel" || pair.first == L"--yes" || pair.first == L"--backup")
                                                         : readOptions.count(pair.first) != 0;
@@ -259,7 +266,10 @@ In PowerShell, pipe stdout to Out-String when invoking interactively.
                         throw UsageError(L"--days must be between 1 and 365.");
                 }
                 collection.includeLargeDumps = has(L"--include-large-dumps");
-                collection.powerReports = has(L"--power");
+                if (has(L"--no-power") && (has(L"--power") || has(L"--energy")))
+                    throw UsageError(L"--no-power cannot be combined with --power or --energy.");
+                collection.powerReports = !has(L"--no-power");
+                collection.energyReport = has(L"--energy");
                 const auto result = CollectWindowsLogs(has(L"--output") ? options[L"--output"] : L"", {}, nullptr, collection);
                 if (has(L"--json"))
                     WriteOutput(CollectionJson(result));

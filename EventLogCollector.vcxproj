@@ -12,7 +12,7 @@
     <Authors>sclliang</Authors>
     <Company>sixunited</Company>
     <Copyright>Copyright (c) 2026 sixunited. Author: sclliang</Copyright>
-    <Version>1.1.0.0</Version>
+    <Version>1.2.0.0</Version>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>
@@ -89,6 +89,6 @@
     <ClInclude Include="src\resource.h"/>
   </ItemGroup>
   <ItemGroup><ResourceCompile Include="src\EventLogCollector.rc"/></ItemGroup>
-  <ItemGroup><None Include="src\app.manifest"/><None Include="README.md"/><Image Include="assets\app.ico"/></ItemGroup>
+  <ItemGroup><None Include="src\app.manifest"/><None Include="README.md"/><Image Include="assets\six6.ico"/></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
 </Project>

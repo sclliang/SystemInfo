@@ -1,5 +1,6 @@
-param([switch]$SkipBuild)
+﻿param([switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'ProcessSupport.ps1')
 $projectRoot = Split-Path $PSScriptRoot -Parent
 if (-not $SkipBuild) {
     $locator = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -17,7 +18,7 @@ New-Item -ItemType Junction -Path (Join-Path $live 'Linked') -Target $outside | 
 $info = [Diagnostics.ProcessStartInfo]::new((Join-Path $projectRoot 'build\x64\Release\EventLogCollector.DiagnosticsSmoke.exe'))
 $info.UseShellExecute = $false
 $info.CreateNoWindow = $true
-$info.ArgumentList.Add($testRoot)
+Set-TestProcessArguments $info @($testRoot)
 $process = [Diagnostics.Process]::Start($info)
 try {
     if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Diagnostic fixture tests timed out.' }

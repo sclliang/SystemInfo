@@ -64,7 +64,7 @@ namespace elm
             file.state = Missing(code) ? CollectionState::NotFound : CollectionState::Failed;
             item.files.push_back(std::move(file));
         }
-        void FinishIndex(CollectedLog &item, const DiagnosticContext &context)
+        void FinishIndex(CollectedLog &item, const DiagnosticContext &context, const std::wstring &extraJson = L"")
         {
             size_t saved = 0, failed = 0, skipped = 0;
             for (const auto &file : item.files)
@@ -91,7 +91,7 @@ namespace elm
                                          L",\"maxDumpTotalBytes\":" + std::to_wstring(context.maxDumpTotalBytes) +
                                          L",\"maxAuxiliaryTotalBytes\":" + std::to_wstring(context.maxAuxiliaryTotalBytes) +
                                          L",\"maxFiles\":" + std::to_wstring(context.maxFiles) +
-                                         L",\"files\":" + CollectedFilesJson(item.files) + L"}\n");
+                                         extraJson + L",\"files\":" + CollectedFilesJson(item.files) + L"}\n");
         }
         struct Candidate
         {
@@ -669,121 +669,181 @@ namespace elm
         if (!context.options.powerReports)
         {
             item.state = CollectionState::Skipped;
-            item.message = L"按需采集：命令行增加 --power。";
+            item.message = L"已通过 --no-power 关闭电源报告采集。";
             return;
         }
         const auto folder = context.output / L"PowerReports";
         item.path = (folder / L"index.json").wstring();
         fs::create_directories(folder);
         wchar_t system[32768]{};
-        if (!GetSystemDirectoryW(system, static_cast<UINT>(std::size(system))))
-            throw Error(GetLastError(), L"获取系统工具路径");
-        const auto executable = fs::path(system) / L"powercfg.exe";
+        const auto systemLength = GetSystemDirectoryW(system, static_cast<UINT>(std::size(system)));
+        if (!systemLength || systemLength >= std::size(system))
+            throw Error(systemLength ? ERROR_INSUFFICIENT_BUFFER : GetLastError(), L"获取系统工具路径");
+        const auto executable = context.powercfgExecutable.empty() ? fs::path(system) / L"powercfg.exe" : context.powercfgExecutable;
         SYSTEM_POWER_STATUS battery{};
-        const bool hasBattery = GetSystemPowerStatus(&battery) && battery.BatteryFlag != 255 && !(battery.BatteryFlag & 128);
+        // Unknown capabilities must not be misreported as unsupported: let powercfg decide.
+        const bool noBattery = GetSystemPowerStatus(&battery) && battery.BatteryFlag != 255 && (battery.BatteryFlag & 128);
         SYSTEM_POWER_CAPABILITIES capabilities{};
-        const bool modernStandby = GetPwrCapabilities(&capabilities) && capabilities.AoAc;
+        const bool noModernStandby = GetPwrCapabilities(&capabilities) && !capabilities.AoAc;
+        const auto transitionDays = std::min(context.options.days, 28U);
+        const std::wstring metadata = L",\"requestedDays\":" + std::to_wstring(context.options.days) +
+            L",\"transitionReportDays\":" + std::to_wstring(transitionDays) +
+            L",\"energyDurationSeconds\":" + (context.options.energyReport ? L"60" : L"0") +
+            L",\"note\":\"时间范围为请求范围，实际历史取决于 Windows 保留的数据；energy 是现场采样，不是历史日志。\"";
         struct Command
         {
             const wchar_t *name;
-            const wchar_t *arguments;
-            bool html, supported;
+            std::wstring arguments;
+            bool html;
+            const wchar_t *skipReason;
+            DWORD timeoutMs;
         };
-        for (const auto &command : std::vector<Command>{{L"sleep-states", L"/a", false, true}, {L"last-wake", L"/lastwake", false, true}, {L"power-requests", L"/requests", false, true}, {L"battery", L"/batteryreport", true, hasBattery}, {L"sleep-study", L"/sleepstudy", true, modernStandby}})
+        const auto timeout = context.powerCommandTimeoutMs;
+        const std::vector<Command> commands{
+            {L"sleep-states", L"/a", false, nullptr, timeout},
+            {L"last-wake", L"/lastwake", false, nullptr, timeout},
+            {L"power-requests", L"/requests", false, nullptr, timeout},
+            {L"system-power", L"/systempowerreport /duration " + std::to_wstring(transitionDays), true, nullptr, timeout},
+            {L"battery", L"/batteryreport /duration " + std::to_wstring(context.options.days), true,
+                noBattery ? L"未检测到系统电池，跳过电池报告。" : nullptr, timeout},
+            {L"sleep-study", L"/sleepstudy /duration " + std::to_wstring(transitionDays), true,
+                noModernStandby ? L"此设备不支持 Modern Standby，跳过 SleepStudy。" : nullptr, timeout},
+            {L"energy", L"/energy /duration 60", true,
+                context.options.energyReport ? nullptr : L"现场能效诊断按需运行：命令行增加 --energy（采样 60 秒，建议保持电脑空闲）。",
+                context.energyCommandTimeoutMs}};
+        for (const auto &command : commands)
         {
-            CheckDiagnosticCancel(context);
             CollectedFile file;
-            file.source = L"powercfg " + std::wstring(command.arguments);
-            if (!command.supported)
+            file.source = L"powercfg " + command.arguments;
+            if (context.cancel && context.cancel->load())
+            {
+                file.state = CollectionState::Cancelled;
+                file.error = ERROR_CANCELLED;
+                file.message = L"电源诊断已取消。";
+                item.files.push_back(std::move(file));
+                FinishIndex(item, context, metadata);
+                throw Error(ERROR_CANCELLED, L"电源诊断已取消");
+            }
+            if (command.skipReason)
             {
                 file.state = CollectionState::Skipped;
-                file.message = L"此设备不支持或不适用此报告。";
+                file.message = command.skipReason;
                 item.files.push_back(std::move(file));
                 continue;
             }
             const auto output = folder / (std::wstring(command.name) + (command.html ? L".html" : L".txt"));
             const auto logPath = command.html ? folder / (std::wstring(command.name) + L"-command.txt") : output;
-            SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
-            Handle log(CreateFileW(logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &security, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
-            Handle input(CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &security, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
-            if (log == INVALID_HANDLE_VALUE || input == INVALID_HANDLE_VALUE)
-                throw Error(GetLastError(), L"创建电源诊断输出");
-            STARTUPINFOEXW startup{};
-            startup.StartupInfo.cb = sizeof(startup);
-            startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-            startup.StartupInfo.wShowWindow = SW_HIDE;
-            startup.StartupInfo.hStdOutput = log;
-            startup.StartupInfo.hStdError = log;
-            startup.StartupInfo.hStdInput = input;
-            SIZE_T attributeBytes = 0;
-            InitializeProcThreadAttributeList(nullptr, 1, 0, &attributeBytes);
-            std::vector<unsigned char> storage(attributeBytes);
-            startup.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(storage.data());
-            if (!InitializeProcThreadAttributeList(startup.lpAttributeList, 1, 0, &attributeBytes))
-                throw Error(GetLastError(), L"初始化工具进程");
-            struct AttributeCloser
+            file.path = logPath.wstring();
+            try
             {
-                LPPROC_THREAD_ATTRIBUTE_LIST value;
-                ~AttributeCloser() { DeleteProcThreadAttributeList(value); }
-            } attributes{startup.lpAttributeList};
-            HANDLE inherited[]{log, input};
-            if (!UpdateProcThreadAttribute(startup.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited, sizeof(inherited), nullptr, nullptr))
-                throw Error(GetLastError(), L"配置工具输出");
-            std::wstring commandLine = L"\"" + executable.wstring() + L"\" " + command.arguments;
-            if (command.html)
-                commandLine += L" /output \"" + output.wstring() + L"\"";
-            PROCESS_INFORMATION process{};
-            if (!CreateProcessW(executable.c_str(), commandLine.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
-                                nullptr, folder.c_str(), &startup.StartupInfo, &process))
-            {
-                file.state = CollectionState::Failed;
-                file.error = GetLastError();
-                file.message = SystemError(file.error);
-            }
-            else
-            {
-                Handle processHandle(process.hProcess), threadHandle(process.hThread);
-                const auto began = GetTickCount64();
-                DWORD wait = WAIT_TIMEOUT;
-                while ((wait = WaitForSingleObject(processHandle, 100)) == WAIT_TIMEOUT)
+                SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
+                Handle log(CreateFileW(logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &security, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+                if (log == INVALID_HANDLE_VALUE)
+                    throw Error(GetLastError(), L"创建电源诊断输出");
+                Handle input(CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &security, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+                if (input == INVALID_HANDLE_VALUE)
+                    throw Error(GetLastError(), L"打开电源诊断标准输入");
+                STARTUPINFOEXW startup{};
+                startup.StartupInfo.cb = sizeof(startup);
+                startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+                startup.StartupInfo.wShowWindow = SW_HIDE;
+                startup.StartupInfo.hStdOutput = log;
+                startup.StartupInfo.hStdError = log;
+                startup.StartupInfo.hStdInput = input;
+                SIZE_T attributeBytes = 0;
+                InitializeProcThreadAttributeList(nullptr, 1, 0, &attributeBytes);
+                std::vector<unsigned char> storage(attributeBytes);
+                startup.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(storage.data());
+                if (!InitializeProcThreadAttributeList(startup.lpAttributeList, 1, 0, &attributeBytes))
+                    throw Error(GetLastError(), L"初始化工具进程");
+                struct AttributeCloser
                 {
-                    if ((context.cancel && context.cancel->load()) || GetTickCount64() - began > 60000)
-                    {
-                        TerminateProcess(processHandle, ERROR_CANCELLED);
-                        WaitForSingleObject(processHandle, 5000);
-                        if (context.cancel && context.cancel->load())
-                            throw Error(ERROR_CANCELLED, L"电源诊断已取消");
-                        file.error = ERROR_TIMEOUT;
-                        file.message = L"电源诊断工具超时（60 秒）。";
-                        break;
-                    }
-                }
-                DWORD code = 0;
-                if (!file.error && (wait != WAIT_OBJECT_0 || !GetExitCodeProcess(processHandle, &code)))
+                    LPPROC_THREAD_ATTRIBUTE_LIST value;
+                    ~AttributeCloser() { DeleteProcThreadAttributeList(value); }
+                } attributes{startup.lpAttributeList};
+                HANDLE inherited[]{log, input};
+                if (!UpdateProcThreadAttribute(startup.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited, sizeof(inherited), nullptr, nullptr))
+                    throw Error(GetLastError(), L"配置工具输出");
+                std::wstring commandLine = L"\"" + executable.wstring() + L"\" " + command.arguments;
+                if (command.html)
+                    commandLine += L" /output \"" + output.wstring() + L"\"";
+                PROCESS_INFORMATION process{};
+                if (!CreateProcessW(executable.c_str(), commandLine.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
+                                    nullptr, folder.c_str(), &startup.StartupInfo, &process))
                 {
+                    file.state = CollectionState::Failed;
                     file.error = GetLastError();
+                    file.message = SystemError(file.error);
+                }
+                else
+                {
+                    Handle processHandle(process.hProcess), threadHandle(process.hThread);
+                    const auto began = GetTickCount64();
+                    DWORD wait = WAIT_TIMEOUT;
+                    while ((wait = WaitForSingleObject(processHandle, 100)) == WAIT_TIMEOUT)
+                    {
+                        if ((context.cancel && context.cancel->load()) || GetTickCount64() - began >= command.timeoutMs)
+                        {
+                            const bool cancelled = context.cancel && context.cancel->load();
+                            TerminateProcess(processHandle, cancelled ? ERROR_CANCELLED : ERROR_TIMEOUT);
+                            WaitForSingleObject(processHandle, 5000);
+                            file.error = cancelled ? ERROR_CANCELLED : ERROR_TIMEOUT;
+                            file.message = cancelled ? L"电源诊断已取消。" :
+                                L"电源诊断工具超时（" + std::to_wstring(command.timeoutMs) + L" 毫秒）；详细输出：" + logPath.wstring();
+                            break;
+                        }
+                    }
+                    DWORD code = 0;
+                    if (!file.error && (wait != WAIT_OBJECT_0 || !GetExitCodeProcess(processHandle, &code)))
+                    {
+                        file.error = GetLastError();
+                        if (!file.error)
+                            file.error = ERROR_GEN_FAILURE;
+                    }
+                    if (!file.error && code)
+                    {
+                        file.error = code;
+                        file.message = (code == ERROR_NOT_SUPPORTED || code == ERROR_CALL_NOT_IMPLEMENTED ?
+                            L"系统工具明确报告不支持此报告，详细输出：" : L"工具返回失败，详细输出：") + logPath.wstring();
+                    }
+                    std::error_code sizeError;
+                    const auto bytes = fs::file_size(output, sizeError);
+                    if (!file.error && (sizeError || !bytes))
+                    {
+                        file.error = sizeError ? static_cast<DWORD>(sizeError.value()) : ERROR_INVALID_DATA;
+                        file.message = L"工具没有生成非空的预期报告，详细输出：" + logPath.wstring();
+                    }
                     if (!file.error)
-                        file.error = ERROR_GEN_FAILURE;
+                        file.path = output.wstring();
+                    else if (file.message.empty())
+                        file.message = SystemError(file.error) + L"；详细输出：" + logPath.wstring();
                 }
-                if (!file.error && code)
-                {
-                    file.error = code;
-                    file.message = L"工具返回失败，详细输出：" + logPath.wstring();
-                }
-                std::error_code sizeError;
-                const auto bytes = fs::file_size(output, sizeError);
-                if (!file.error && sizeError)
-                {
-                    file.error = static_cast<DWORD>(sizeError.value());
-                    file.message = L"工具没有生成预期报告。";
-                }
-                file.state = file.error ? CollectionState::Failed : CollectionState::Saved;
-                file.path = file.error ? logPath.wstring() : output.wstring();
-                file.bytes = sizeError ? 0 : bytes;
             }
+            catch (const Error &error)
+            {
+                file.error = error.code;
+                file.message = error.text;
+            }
+            file.state = !file.error ? CollectionState::Saved : file.error == ERROR_CANCELLED ? CollectionState::Cancelled :
+                (file.error == ERROR_NOT_SUPPORTED || file.error == ERROR_CALL_NOT_IMPLEMENTED) ? CollectionState::Skipped : CollectionState::Failed;
+            // A timed-out/cancelled tool may leave an incomplete HTML; never present it as a report.
+            if (file.error && command.html)
+                DeleteFileW(output.c_str());
+            WIN32_FILE_ATTRIBUTE_DATA attributes{};
+            if (Attributes(file.path, attributes))
+            {
+                file.bytes = (static_cast<uint64_t>(attributes.nFileSizeHigh) << 32) | attributes.nFileSizeLow;
+                file.modifiedUtc = DiagnosticUtc(FileTimeValue(attributes.ftLastWriteTime));
+            }
+            const bool cancelled = file.state == CollectionState::Cancelled;
             item.files.push_back(std::move(file));
+            if (cancelled)
+            {
+                FinishIndex(item, context, metadata);
+                throw Error(ERROR_CANCELLED, L"电源诊断已取消");
+            }
         }
-        FinishIndex(item, context);
+        FinishIndex(item, context, metadata);
     }
     void CollectDiagnostic(CollectedLog &item, DiagnosticContext &context, const CollectionResult &result)
     {

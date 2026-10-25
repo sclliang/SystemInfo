@@ -19,7 +19,8 @@ namespace elm
     {
         unsigned days = 7;
         bool includeLargeDumps = false;
-        bool powerReports = false;
+        bool powerReports = true;
+        bool energyReport = false;
     };
     struct CollectedFile
     {

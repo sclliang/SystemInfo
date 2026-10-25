@@ -99,7 +99,7 @@ namespace elm
             result.logs[i].caption = captions[i];
         }
         const std::pair<const wchar_t *, const wchar_t *> diagnostics[]{
-            {L"CrashDumps", L"蓝屏转储"}, {L"LiveKernelReports", L"实时内核转储"}, {L"WerReports", L"Windows 故障报告"}, {L"SystemInfo", L"系统与硬件"}, {L"Devices", L"设备状态与问题代码"}, {L"Drivers", L"驱动与签名信息"}, {L"DumpConfiguration", L"转储与分页文件配置"}, {L"DriverInstallation", L"设备驱动安装日志"}, {L"DiagnosticEvents", L"设备、驱动与更新事件"}, {L"Timeline", L"故障时间线"}, {L"PowerReports", L"电源诊断（可选）"}};
+            {L"CrashDumps", L"蓝屏转储"}, {L"LiveKernelReports", L"实时内核转储"}, {L"WerReports", L"Windows 故障报告"}, {L"SystemInfo", L"系统与硬件"}, {L"Devices", L"设备状态与问题代码"}, {L"Drivers", L"驱动与签名信息"}, {L"DumpConfiguration", L"转储与分页文件配置"}, {L"DriverInstallation", L"设备驱动安装日志"}, {L"DiagnosticEvents", L"设备、驱动与更新事件"}, {L"Timeline", L"故障时间线"}, {L"PowerReports", L"电源与睡眠报告"}};
         for (const auto &[id, caption] : diagnostics)
         {
             CollectedLog item;
@@ -114,6 +114,8 @@ namespace elm
     {
         if (!options.days || options.days > 365)
             throw Error(ERROR_INVALID_PARAMETER, L"Collection days must be between 1 and 365");
+        if (options.energyReport && !options.powerReports)
+            throw Error(ERROR_INVALID_PARAMETER, L"Energy diagnostics require power reports");
         auto result = InitialCollection(directory);
         result.options = options;
         const auto started = GetTickCount64();
@@ -269,7 +271,7 @@ namespace elm
     }
     std::wstring CollectionJson(const CollectionResult &result)
     {
-        std::wstring json = L"{\n  \"schemaVersion\":2,\n  \"toolVersion\":\"1.1.0.0\",\n  \"rootDirectory\":" + JsonQuote(result.rootDirectory) +
+        std::wstring json = L"{\n  \"schemaVersion\":2,\n  \"toolVersion\":\"1.2.0.0\",\n  \"rootDirectory\":" + JsonQuote(result.rootDirectory) +
                             L",\n  \"directory\":" + JsonQuote(result.directory) + L",\n  \"computerName\":" + JsonQuote(result.computerName) +
                             L",\n  \"startedUtc\":" + JsonQuote(result.startedUtc) +
                             L",\n  \"finishedUtc\":" + JsonQuote(result.finishedUtc) + L",\n  \"timeZone\":" + JsonQuote(result.timeZone) +
@@ -281,7 +283,8 @@ namespace elm
                             L",\n  \"manifestErrorCode\":" + std::to_wstring(result.manifestError) +
                             L",\n  \"options\":{\"days\":" + std::to_wstring(result.options.days) +
                             L",\"includeLargeDumps\":" + (result.options.includeLargeDumps ? L"true" : L"false") +
-                            L",\"powerReports\":" + (result.options.powerReports ? L"true" : L"false") + L"}";
+                            L",\"powerReports\":" + (result.options.powerReports ? L"true" : L"false") +
+                            L",\"energyReport\":" + (result.options.energyReport ? L"true" : L"false") + L"}";
         auto array = [&](const wchar_t *name, const auto &items)
         {
             json += L",\n  \"" + std::wstring(name) + L"\":[";

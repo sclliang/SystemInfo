@@ -16,6 +16,9 @@ namespace elm
         uint64_t maxAuxiliaryTotalBytes = 128ULL * 1024 * 1024;
         size_t maxFiles = 100, maxScanEntries = 10000, maxEventsPerChannel = 5000;
         bool resolveDumpPaths = true;
+        // Internal fixture overrides; production always resolves powercfg from System32.
+        std::filesystem::path powercfgExecutable;
+        DWORD powerCommandTimeoutMs = 60000, energyCommandTimeoutMs = 120000;
     };
     DiagnosticContext MakeDiagnosticContext(const CollectionResult &result, const std::atomic_bool *cancel);
     void CollectDiagnostic(CollectedLog &item, DiagnosticContext &context, const CollectionResult &result);
