@@ -4,5 +4,5 @@ build/
 *.VC.db
 *.VC.opendb
 /package/
-/Log/
+/[Ll][Oo][Gg]/
 *.evtx

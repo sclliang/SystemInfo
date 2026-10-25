@@ -84,7 +84,7 @@ namespace elm
         if (!length || length >= path.size())
             throw Error(length ? ERROR_FILENAME_EXCED_RANGE : GetLastError(), L"Locate executable");
         path.resize(length);
-        return (std::filesystem::path(path).parent_path() / L"Log").wstring();
+        return (std::filesystem::path(path).parent_path() / L"LOG").wstring();
     }
     CollectionResult InitialCollection(const std::wstring &directory)
     {

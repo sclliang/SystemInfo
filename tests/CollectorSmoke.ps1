@@ -49,10 +49,10 @@ $first = Invoke-Collector @('collect','--json')
 $result = $first.Out | ConvertFrom-Json
 $channels = @('System','Application','Security','Setup','ForwardedEvents')
 Assert (($result.logs.channel -join ',') -eq ($channels -join ',')) 'Collects the five standard Windows channels in order'
-Assert ($result.rootDirectory -eq (Join-Path $deployment 'Log') -and
+Assert ($result.rootDirectory -ceq (Join-Path $deployment 'LOG') -and
     (Split-Path $result.directory -Parent) -eq $result.rootDirectory -and
-    (Split-Path $result.directory -Leaf) -like 'Collection_*') 'Each run has an independent directory under Log next to the EXE'
-Assert (-not (Test-Path -LiteralPath (Join-Path $working 'Log'))) 'No accidental Log directory in the caller working directory'
+    (Split-Path $result.directory -Leaf) -like 'Collection_*') 'Each run has an independent directory under LOG next to the EXE'
+Assert (-not (Test-Path -LiteralPath (Join-Path $working 'LOG'))) 'No accidental LOG directory in the caller working directory'
 $saved = @($result.logs | Where-Object status -eq 'saved')
 $failed = @($result.logs | Where-Object status -eq 'failed')
 Assert ($saved.Count -ge 3 -and ($saved.Count + $failed.Count) -eq 5) 'All channels are attempted and readable logs are saved'

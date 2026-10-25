@@ -132,7 +132,7 @@ Collection:
   Collect five complete event channels, recent dumps and WER reports, hardware,
   devices, drivers, dump settings, installation logs, diagnostic channels, a timeline
   and applicable powercfg HTML reports (system power, battery, Modern Standby).
-  Each run creates a NEW Collection_timestamp directory under Log next to the EXE.
+  Each run creates a NEW Collection_timestamp directory under LOG next to the EXE.
   --output DIR       Override the parent directory (created if needed)
   --days N           Recent file/diagnostic event window, 1..365 (default 7)
                      The five standard event channels are always exported in full.

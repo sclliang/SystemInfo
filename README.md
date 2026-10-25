@@ -6,7 +6,7 @@ C++20 / 原生 Win32 + FluentUI SDK，Windows 10 / 11 x64，版本 **1.2.0.0**�
 
 双击 package/EventLogCollector.exe，在 Windows 管理员权限提示中选择“是”，程序立即显示浅色加载窗口，在后台收集事件日志和故障诊断信息。无需选择通道或点击开始。
 
-每次创建一个独立目录：**EXE 所在目录/Log/Collection_时间戳-进程号/**。时间戳包含毫秒，同名目录自动追加序号；重复运行保留旧结果。命令行指定输出位置时，也在该位置下创建本次独立目录。
+每次创建一个独立目录：**EXE 所在目录/LOG/Collection_时间戳-进程号/**。时间戳包含毫秒，同名目录自动追加序号；重复运行保留旧结果。命令行指定输出位置时，也在该位置下创建本次独立目录。
 
 | 类别 | 内容 |
 |---|---|
@@ -28,7 +28,7 @@ C++20 / 原生 Win32 + FluentUI SDK，Windows 10 / 11 x64，版本 **1.2.0.0**�
 ~~~text
 package/
 ├── EventLogCollector.exe
-└── Log/
+└── LOG/
     └── Collection_20261021_103000_001-1234/
         ├── manifest.json
         ├── Events/
@@ -128,7 +128,7 @@ SDK 默认位置为相邻项目 ../FluentUI/sdk。Release 自动发布到 packag
 
 主要源码：Collector.* 编排采集与清单；Diagnostics.* 负责文件、专用事件、时间线和电源工具；SystemSnapshot.cpp 负责 WMI、设备与注册表；CollectorWindow.* 负责界面；EventLogService.* 封装事件 API；CommandLine.* 负责命令行。
 
-Git 保存源码、图标、脚本和测试；FluentUI SDK 另行准备。build/、package/、Log/ 及 EVTX 不提交。
+Git 保存源码、图标、脚本和测试；FluentUI SDK 另行准备。build/、package/、LOG/ 及 EVTX 不提交。
 
 ## 验证
 
