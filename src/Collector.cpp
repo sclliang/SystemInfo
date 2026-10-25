@@ -1,5 +1,6 @@
 #include "Collector.h"
 #include "Diagnostics.h"
+#include "HtmlReport.h"
 #include <algorithm>
 #include <filesystem>
 
@@ -157,7 +158,7 @@ namespace elm
                 if (error != ERROR_ALREADY_EXISTS || attempt >= 100)
                     throw Error(error, L"Create collection directory");
             }
-            result.manifestPath = (std::filesystem::path(result.directory) / L"manifest.json").wstring();
+            result.manifestPath = (std::filesystem::path(result.directory) / L"manifest.html").wstring();
             std::filesystem::create_directory(std::filesystem::path(result.directory) / L"Events");
             auto context = MakeDiagnosticContext(result, cancel);
             publish();
@@ -250,7 +251,8 @@ namespace elm
             try
             {
                 result.manifestSaved = true;
-                WriteDiagnosticFile(result.manifestPath, CollectionJson(result));
+                WriteDiagnosticFile(result.manifestPath, ReportHtml(L"日志与诊断采集报告", CollectionJson(result),
+                                                                   result.directory, result.manifestPath, L"collection"));
             }
             catch (const Error &error)
             {
@@ -271,7 +273,7 @@ namespace elm
     }
     std::wstring CollectionJson(const CollectionResult &result)
     {
-        std::wstring json = L"{\n  \"schemaVersion\":2,\n  \"toolVersion\":\"1.2.0.0\",\n  \"rootDirectory\":" + JsonQuote(result.rootDirectory) +
+        std::wstring json = L"{\n  \"schemaVersion\":2,\n  \"toolVersion\":\"1.3.0.0\",\n  \"rootDirectory\":" + JsonQuote(result.rootDirectory) +
                             L",\n  \"directory\":" + JsonQuote(result.directory) + L",\n  \"computerName\":" + JsonQuote(result.computerName) +
                             L",\n  \"startedUtc\":" + JsonQuote(result.startedUtc) +
                             L",\n  \"finishedUtc\":" + JsonQuote(result.finishedUtc) + L",\n  \"timeZone\":" + JsonQuote(result.timeZone) +

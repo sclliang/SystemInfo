@@ -1,12 +1,14 @@
 # EventLogCollector · 事件日志收集器
 
-C++20 / 原生 Win32 + FluentUI SDK，Windows 10 / 11 x64，版本 **1.2.0.0**。
+C++20 / 原生 Win32 + FluentUI SDK，Windows 10 / 11 x64，版本 **1.3.0.0**。
 
 ## 一键采集
 
 双击 package/EventLogCollector.exe，在 Windows 管理员权限提示中选择“是”，程序立即显示浅色加载窗口，在后台收集事件日志和故障诊断信息。无需选择通道或点击开始。
 
 每次创建一个独立目录：**EXE 所在目录/LOG/Collection_时间戳-进程号/**。时间戳包含毫秒，同名目录自动追加序号；重复运行保留旧结果。命令行指定输出位置时，也在该位置下创建本次独立目录。
+
+采集结束后点击 **查看报告**，或双击本次目录中的 **manifest.html** 打开中文总览。系统信息、设备、驱动、时间线和各类索引均生成 HTML，支持本页全文搜索、状态/事件级别/设备问题筛选、每页 50 条记录和展开完整字段。时间线详情保留消息与原始 XML。报告内嵌样式、脚本与数据，无需联网；使用启用 JavaScript 的 Edge、Chrome 或 Firefox 查看。复制整个采集目录后，相对文件链接仍可使用。打印按钮打印当前筛选和当前分页中可见的内容。
 
 | 类别 | 内容 |
 |---|---|
@@ -30,23 +32,23 @@ package/
 ├── EventLogCollector.exe
 └── LOG/
     └── Collection_20261021_103000_001-1234/
-        ├── manifest.json
+        ├── manifest.html
         ├── Events/
         │   ├── System.evtx
         │   ├── Application.evtx
         │   └── ...
-        ├── CrashDumps/index.json
-        ├── LiveKernelReports/index.json
-        ├── WerReports/index.json
-        ├── SystemInfo.json
-        ├── Devices.json
-        ├── Drivers.json
-        ├── DumpConfiguration.json
-        ├── DriverInstallation/index.json
-        ├── DiagnosticEvents/index.json
-        ├── Timeline.json
+        ├── CrashDumps/index.html
+        ├── LiveKernelReports/index.html
+        ├── WerReports/index.html
+        ├── SystemInfo.html
+        ├── Devices.html
+        ├── Drivers.html
+        ├── DumpConfiguration.html
+        ├── DriverInstallation/index.html
+        ├── DiagnosticEvents/index.html
+        ├── Timeline.html
         └── PowerReports/
-            ├── index.json
+            ├── index.html
             ├── system-power.html
             ├── battery.html         （有电池时）
             ├── sleep-study.html     （支持 Modern Standby 时）
@@ -67,7 +69,7 @@ package/
 - 未找到可选转储、WER 报告或专用通道，不作为采集失败。
 - 未启用通道、不适用的电源报告、未选择的大转储，以及达到文件复制限额的条目，记录为跳过并说明原因。
 - 无权限、文件被占用、读取失败或达到扫描/时间线截断上限，明确报告失败或部分完成；继续尝试后面的项目。
-- manifest.json 记录机器名、程序版本、开始/结束 UTC、时区、参数、每项结果、文件来源、路径、大小、修改时间及错误。清单写入失败也会导致整体失败。
+- manifest.html 记录机器名、程序版本、开始/结束 UTC、时区、参数、每项结果、文件来源、路径、大小、修改时间及错误。清单写入失败也会导致整体失败。
 - 取消会保留已完成文件，尝试保存包含取消状态的清单；当前系统导出/WMI 调用需要返回后才能继续响应。正常复制失败和取消清理当前临时文件，强制结束可能遗留临时文件。
 
 默认转储复制限制为单文件 **64 MiB**、三类来源合计 **256 MiB**；--include-large-dumps 同时允许复制配置的系统内存转储，并提升为单文件 **4 GiB**、合计 **8 GiB**。超过限额仍记录元数据。WER 非转储报告与安装日志单文件限制 **32 MiB**，合计 **128 MiB**。每类最多复制 100 个文件，近期文件优先。每类最多扫描 10000 个目录项，递归深度为 5；不会跟随源目录或文件的重解析点。
@@ -104,7 +106,7 @@ FluentUI 与 C/C++ 运行库静态链接，字体、图标内嵌，发布程序�
 .\package\EventLogCollector.exe --help | Out-String
 ~~~
 
-无参数或 gui 打开自动采集窗口；collect 执行相同采集而不显示窗口。JSON 清单为 schemaVersion 2，保留原 logs 数组，同时增加 diagnostics、时间与参数等字段；directory 现在指本次独立目录，rootDirectory 为父目录。
+无参数或 gui 打开自动采集窗口；collect 执行相同采集而不显示窗口。一键采集生成 HTML 报告，无独立 JSON 文件。命令行 --json 继续输出 schemaVersion 2 的完整结果；相同数据嵌入 manifest.html 的 report-data 元素中。保留 logs、diagnostics、时间与参数等字段；manifestPath 和各诊断项目 path 指向 HTML 文件。directory 指本次独立目录，rootDirectory 为父目录。旧采集目录保留原样。
 
 退出码：0 按所选范围完成（允许可选证据不存在或明确跳过），2 参数错误，4 有失败/部分完成或清单无法写入，5 取消。
 
@@ -124,9 +126,9 @@ FluentUI 与 C/C++ 运行库静态链接，字体、图标内嵌，发布程序�
 
 SDK 默认位置为相邻项目 ../FluentUI/sdk。Release 自动发布到 package/EventLogCollector.exe。已安装 SDK 是 Release 静态库，因此 Debug 使用 /Od /Zi、/MT 和 _ITERATOR_DEBUG_LEVEL=0 保持 ABI 兼容。
 
-可执行文件和项目元数据：Author/Authors 为 sclliang，CompanyName/Company 为 sixunited，版权为 Copyright (c) 2026 sixunited. Author: sclliang，FileVersion / ProductVersion 为 1.2.0.0。界面不显示作者或版权归属，默认浅色且不跟随系统切换为深色。
+可执行文件和项目元数据：Author/Authors 为 sclliang，CompanyName/Company 为 sixunited，版权为 Copyright (c) 2026 sixunited. Author: sclliang，FileVersion / ProductVersion 为 1.3.0.0。界面不显示作者或版权归属，默认浅色且不跟随系统切换为深色。
 
-主要源码：Collector.* 编排采集与清单；Diagnostics.* 负责文件、专用事件、时间线和电源工具；SystemSnapshot.cpp 负责 WMI、设备与注册表；CollectorWindow.* 负责界面；EventLogService.* 封装事件 API；CommandLine.* 负责命令行。
+主要源码：Collector.* 编排采集与清单；HtmlReport.* 和 assets/report.html 生成内嵌数据的离线报告；Diagnostics.* 负责文件、专用事件、时间线和电源工具；SystemSnapshot.cpp 负责 WMI、设备与注册表；CollectorWindow.* 负责界面；EventLogService.* 封装事件 API；CommandLine.* 负责命令行。
 
 Git 保存源码、图标、脚本和测试；FluentUI SDK 另行准备。build/、package/、LOG/ 及 EVTX 不提交。
 
@@ -149,6 +151,10 @@ Git 保存源码、图标、脚本和测试；FluentUI SDK 另行准备。build/
 
 # 加载、完成、失败、部分完成、取消、清单失败、诊断行滚动与缩放
 .\tests\UiSmoke.ps1
+
+# 离线 DOM 检查：传入上述测试产生的隔离样本根目录和实际 Collection 目录
+npm install --prefix build/html-validation --no-save jsdom@30.1.3
+node tests/ReportSmoke.js '<隔离样本根目录>' '<实际 Collection 目录>'
 ~~~
 
 文件样本仅在 build/diagnostic-fixtures 的独立目录创建，不修改系统配置。界面测试用确定的样本生成 D2D 截图到 build/ui；样本截图不代表真实机器的采集结果。asInvoker 测试 EXE 只保留在 build，最终发布 EXE 仍要求管理员权限。

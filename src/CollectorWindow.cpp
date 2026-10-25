@@ -123,6 +123,8 @@ namespace elm
                 details_ = &button(L"查看详情", IconSymbol::Info, [this]
                                    { showDetails(); });
                 details_->subtle = true;
+                report_ = &button(L"查看报告", IconSymbol::Document, [this]
+                                  { openReport(); });
                 folder_ = &button(L"打开采集文件夹", IconSymbol::FolderOpen, [this]
                                   { openFolder(); });
                 close_ = &button(L"完成", IconSymbol::CheckMark, [this]
@@ -210,6 +212,7 @@ namespace elm
                 place(path_, {r.x + 28, r.bottom() - 164, r.width - 56, 40});
                 place(summary_, {r.x + 28, r.bottom() - 112, r.width - 56, 28});
                 place(details_, {r.x + 20, r.bottom() - 62, 112, 36});
+                place(report_, {r.x + 144, r.bottom() - 62, 116, 36});
                 place(folder_, {r.right() - 304, r.bottom() - 62, 168, 36});
                 place(close_, {r.right() - 124, r.bottom() - 62, 96, 36});
             }
@@ -235,7 +238,7 @@ namespace elm
                 auto value = InitialCollection();
                 value.elapsedMs = 1800;
                 value.directory += L"\\Collection_20261021_103000_001-1234";
-                value.manifestPath = value.directory + L"\\manifest.json";
+                value.manifestPath = value.directory + L"\\manifest.html";
                 for (auto *item : CollectionEntries(value))
                 {
                     item->state = CollectionState::Saved;
@@ -280,7 +283,8 @@ namespace elm
                 else if (scenario != L"success" && scenario != L"diagnostics")
                     throw std::runtime_error("Unknown UI fixture");
                 apply(value);
-                if (close_->enabled != value.finished || (value.success() != (title_->text == L"采集完成")))
+                if (close_->enabled != value.finished || report_->enabled != (value.finished && value.manifestSaved) ||
+                    (value.success() != (title_->text == L"采集完成")))
                     throw std::runtime_error("Collection completion UI is not bound to the result");
                 if (rows_.size() != value.total())
                     throw std::runtime_error("Diagnostic rows missing from UI");
@@ -322,6 +326,7 @@ namespace elm
                 path_->tooltip = value.directory;
                 close_->enabled = value.finished;
                 details_->enabled = value.finished;
+                report_->enabled = value.finished && value.manifestSaved;
                 folder_->enabled = value.finished && (value.saved() > 0 || value.count(CollectionState::Partial) > 0);
                 progress_->indeterminate = !value.finished;
                 progress_->setValue(100. * static_cast<double>(value.completed()) / value.total());
@@ -350,7 +355,7 @@ namespace elm
                                       L" 项；详情已逐项记录。";
                     wchar_t duration[48]{};
                     swprintf_s(duration, L"%.1f 秒", value.elapsedMs / 1000.);
-                    summary_->text = value.success() ? L"采集完成 · 用时 " + std::wstring(duration) + L" · 采集清单已保存" : L"请查看详情了解原因；已保存的资料可以继续用于分析。";
+                    summary_->text = value.success() ? L"采集完成 · 用时 " + std::wstring(duration) + L" · 点击「查看报告」浏览 HTML 报告" : L"请查看报告或详情了解原因；已保存的资料可以继续用于分析。";
                     window_.setTitle(title_->text + L" - 事件日志收集器");
                 }
                 notifyChanged();
@@ -406,6 +411,17 @@ namespace elm
                     dialog_->open();
                 }
             }
+            void openReport()
+            {
+                const auto opened = reinterpret_cast<INT_PTR>(ShellExecuteW(window_.hwnd(), L"open", result_.manifestPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+                if (opened <= 32)
+                {
+                    dialog_->title = L"无法打开报告";
+                    dialog_->message = L"请使用浏览器手动打开：\n" + result_.manifestPath;
+                    dialog_->contentFactory = {};
+                    dialog_->open();
+                }
+            }
             AppWindow &window_;
             CollectionResult result_;
             std::thread worker_;
@@ -418,7 +434,7 @@ namespace elm
             std::wstring active_;
             TextBlock *title_{}, *subtitle_{}, *path_{}, *summary_{};
             ProgressBar *progress_{};
-            Button *details_{}, *folder_{}, *close_{};
+            Button *details_{}, *report_{}, *folder_{}, *close_{};
             ContentDialog *dialog_{};
         };
     }

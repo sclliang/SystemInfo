@@ -60,7 +60,9 @@ Assert ($result.schemaVersion -eq 2 -and $result.diagnostics.Count -eq 11) 'Mani
 $incomplete = @(@($result.logs) + @($result.diagnostics) | Where-Object status -notin @('saved','not_found','skipped'))
 Assert ($result.success -eq ($incomplete.Count -eq 0 -and $result.manifestSaved)) 'Success includes diagnostic and manifest failures, while allowing absent optional evidence'
 Assert ($first.Code -eq $(if ($result.success) {0} else {4})) 'Process exit code matches the actual collection result'
-Assert ($result.manifestSaved -and (Get-Content -LiteralPath $result.manifestPath -Raw -Encoding utf8) -ceq $first.Out) 'Persisted manifest exactly matches CLI JSON'
+Assert ($result.manifestSaved -and $result.manifestPath -like '*.html' -and
+    ((Read-TestReport $result.manifestPath) | ConvertTo-Json -Depth 50 -Compress) -ceq
+    ($result | ConvertTo-Json -Depth 50 -Compress)) 'HTML overview embeds the complete CLI JSON result'
 Assert ((Test-UtcTimestamp $result.startedUtc) -and (Test-UtcTimestamp $result.finishedUtc) -and
     $null -ne $result.utcOffsetMinutes) 'Collection records UTC boundaries and local timezone offset'
 $hashes = @{}
@@ -80,8 +82,8 @@ foreach ($log in $failed) { Assert ($log.errorCode -ne 0 -and $log.error.Length 
 foreach ($item in $result.diagnostics) {
     Assert ($item.status -in @('saved','partial','failed','not_found','skipped')) "Diagnostic has a terminal status: $($item.channel)"
     if ($item.path -and (Test-Path -LiteralPath $item.path -PathType Leaf)) {
-        $null = Get-Content -LiteralPath $item.path -Raw -Encoding utf8 | ConvertFrom-Json
-        Assert $true "Diagnostic JSON parses independently: $($item.channel)"
+        $null = Read-TestReport $item.path
+        Assert ($item.path -like '*.html') "Diagnostic HTML embeds independently readable data: $($item.channel)"
         $hashes[$item.path] = (Get-FileHash -LiteralPath $item.path).Hash
     }
     if ($item.status -in @('failed','partial')) {
@@ -90,18 +92,18 @@ foreach ($item in $result.diagnostics) {
 }
 $system = $result.diagnostics | Where-Object channel -eq 'SystemInfo'
 if ($system.status -in @('saved','partial')) {
-    $snapshot = Get-Content -LiteralPath $system.path -Raw -Encoding utf8 | ConvertFrom-Json
+    $snapshot = Read-TestReport $system.path
     $os = $snapshot.sections | Where-Object class -eq 'Win32_OperatingSystem'
     Assert ($os.rows.Count -gt 0 -and $os.rows[0].BuildNumber.Length -gt 0) 'Hardware snapshot contains the actual operating system build'
 }
 $devices = $result.diagnostics | Where-Object channel -eq 'Devices'
 if ($devices.status -in @('saved','partial')) {
-    $deviceSnapshot = Get-Content -LiteralPath $devices.path -Raw -Encoding utf8 | ConvertFrom-Json
+    $deviceSnapshot = Read-TestReport $devices.path
     Assert ($deviceSnapshot.devices.Count -gt 0 -and $deviceSnapshot.devices[0].instanceId.Length -gt 0) 'Device inventory contains native device identities and status fields'
 }
 $timelineItem = $result.diagnostics | Where-Object channel -eq 'Timeline'
 if ($timelineItem.status -in @('saved','partial')) {
-    $timeline = Get-Content -LiteralPath $timelineItem.path -Raw -Encoding utf8 | ConvertFrom-Json
+    $timeline = Read-TestReport $timelineItem.path
     $ordered = $true
     for ($i = 1; $i -lt $timeline.events.Count; $i++) { if ([datetime]$timeline.events[$i].timeUtc -lt [datetime]$timeline.events[$i-1].timeUtc) { $ordered = $false } }
     Assert $ordered 'Timeline events are in chronological order'
@@ -109,7 +111,7 @@ if ($timelineItem.status -in @('saved','partial')) {
 }
 $power = $result.diagnostics | Where-Object channel -eq 'PowerReports'
 Assert ($result.options.powerReports -and -not $result.options.energyReport -and (Test-Path -LiteralPath $power.path)) 'Power reports are collected by default, without energy sampling'
-$powerIndex = Get-Content -LiteralPath $power.path -Raw -Encoding utf8 | ConvertFrom-Json
+$powerIndex = Read-TestReport $power.path
 Assert ($powerIndex.files.Count -eq 7 -and $powerIndex.requestedDays -eq 7 -and $powerIndex.transitionReportDays -eq 7) 'All power report decisions and requested days are indexed'
 Assert (($powerIndex.files | Where-Object source -like 'powercfg /energy *').status -eq 'skipped') 'Energy sampling requires explicit opt-in'
 $hashes[$result.manifestPath] = (Get-FileHash -LiteralPath $result.manifestPath).Hash
@@ -121,6 +123,7 @@ Assert (-not $again.options.powerReports -and ($again.diagnostics | Where-Object
     -not (Test-Path -LiteralPath (Join-Path $again.directory 'PowerReports'))) 'Explicit opt-out skips power reports without creating a directory'
 foreach ($path in $hashes.Keys) { Assert ((Get-FileHash -LiteralPath $path).Hash -eq $hashes[$path]) 'Previous collection is preserved' }
 Assert (@(Get-ChildItem -LiteralPath $result.directory -Filter '*.tmp*' -Recurse -File).Count -eq 0) 'No temporary diagnostic or export files remain'
+Assert (@(Get-ChildItem -LiteralPath $result.directory -Filter '*.json' -Recurse -File).Count -eq 0) 'One-click collection presents HTML reports without JSON sidecars'
 $blockingFile = Join-Path $working 'not-a-directory'
 Set-Content -LiteralPath $blockingFile -Value 'preserve me' -NoNewline
 $bad = Invoke-Collector @('collect','--output',$blockingFile,'--json')

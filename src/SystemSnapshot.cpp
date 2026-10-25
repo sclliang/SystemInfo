@@ -351,7 +351,7 @@ namespace elm
     }
     void CollectSystemSnapshot(CollectedLog &item, const DiagnosticContext &context)
     {
-        item.path = (context.output / L"SystemInfo.json").wstring();
+        item.path = (context.output / L"SystemInfo.html").wstring();
         bool incomplete = false;
         std::wstring version = L"{";
         constexpr auto versionKey = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
@@ -384,9 +384,9 @@ namespace elm
         if (incomplete)
         {
             item.error = ERROR_PARTIAL_COPY;
-            item.message = L"部分系统信息未能读取，逐项状态见 JSON。";
+            item.message = L"部分系统信息未能读取，逐项状态见 HTML 报告。";
         }
-        SaveDiagnosticJson(item, L"{\"collectedAtUtc\":" + JsonQuote(DiagnosticUtc(context.now)) +
+        SaveDiagnosticReport(item, context, L"{\"collectedAtUtc\":" + JsonQuote(DiagnosticUtc(context.now)) +
                                      L",\"windowsVersion\":" + version + L",\"powerStatus\":{\"available\":" + (powerKnown ? L"true" : L"false") +
                                      L",\"acLineStatus\":" + std::to_wstring(power.ACLineStatus) + L",\"batteryFlag\":" + std::to_wstring(power.BatteryFlag) +
                                      L",\"batteryLifePercent\":" + std::to_wstring(power.BatteryLifePercent) +
@@ -396,7 +396,7 @@ namespace elm
     }
     void CollectDrivers(CollectedLog &item, const DiagnosticContext &context)
     {
-        item.path = (context.output / L"Drivers.json").wstring();
+        item.path = (context.output / L"Drivers.html").wstring();
         bool incomplete = false;
         const auto sections = WmiSections({{L"Win32_PnPSignedDriver", {L"DeviceID", L"DeviceName", L"DeviceClass", L"Manufacturer", L"DriverProviderName", L"DriverVersion", L"DriverDate", L"InfName", L"IsSigned", L"Signer"}},
                                            {L"Win32_SystemDriver", {L"Name", L"DisplayName", L"PathName", L"State", L"Started", L"StartMode", L"ServiceType", L"Status"}}},
@@ -405,16 +405,16 @@ namespace elm
         if (incomplete)
         {
             item.error = ERROR_PARTIAL_COPY;
-            item.message = L"部分驱动信息未能读取，逐项状态见 JSON。";
+            item.message = L"部分驱动信息未能读取，逐项状态见 HTML 报告。";
         }
-        SaveDiagnosticJson(item, L"{\"collectedAtUtc\":" + JsonQuote(DiagnosticUtc(context.now)) +
+        SaveDiagnosticReport(item, context, L"{\"collectedAtUtc\":" + JsonQuote(DiagnosticUtc(context.now)) +
                                      L",\"note\":\"包含设备关联的签名驱动信息及系统驱动服务状态；不等同于驱动仓库中全部未使用的驱动包。"
                                      L"DriverDate 是驱动包日期，不代表实际安装时间；签名字段来自系统清单，未执行独立签名验证。\",\"sections\":" +
                                      sections + L"}\n");
     }
     void CollectDevices(CollectedLog &item, const DiagnosticContext &context)
     {
-        item.path = (context.output / L"Devices.json").wstring();
+        item.path = (context.output / L"Devices.html").wstring();
         HDEVINFO devices = SetupDiGetClassDevsW(nullptr, nullptr, nullptr, DIGCF_ALLCLASSES);
         if (devices == INVALID_HANDLE_VALUE)
             throw Error(GetLastError(), L"枚举设备");
@@ -477,11 +477,11 @@ namespace elm
                 item.error = ERROR_PARTIAL_COPY;
             item.message = L"部分设备状态无法读取，见 configRet 与 statusAvailable。";
         }
-        SaveDiagnosticJson(item, json + L"\n]}\n");
+        SaveDiagnosticReport(item, context, json + L"\n]}\n");
     }
     void CollectDumpConfiguration(CollectedLog &item, const DiagnosticContext &context)
     {
-        item.path = (context.output / L"DumpConfiguration.json").wstring();
+        item.path = (context.output / L"DumpConfiguration.html").wstring();
         bool incomplete = false;
         std::wstring json = L"{\"collectedAtUtc\":" + JsonQuote(DiagnosticUtc(context.now)) + L",\"registry\":[";
         const std::vector<std::pair<const wchar_t *, std::vector<const wchar_t *>>> keys{
@@ -522,6 +522,6 @@ namespace elm
             item.error = ERROR_PARTIAL_COPY;
             item.message = L"部分配置或分页文件状态无法读取。";
         }
-        SaveDiagnosticJson(item, json);
+        SaveDiagnosticReport(item, context, json);
     }
 }

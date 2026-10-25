@@ -1,4 +1,5 @@
 #include "Diagnostics.h"
+#include "HtmlReport.h"
 #include <winevt.h>
 #include <shlobj.h>
 #include <powrprof.h>
@@ -85,7 +86,7 @@ namespace elm
                                                                    : CollectionState::NotFound;
             item.message = L"已保存 " + std::to_wstring(saved) + L" 项，跳过 " + std::to_wstring(skipped) +
                            L" 项，错误 " + std::to_wstring(failed) + L" 项；详细原因见索引。";
-            SaveDiagnosticJson(item, L"{\"windowStartUtc\":" + JsonQuote(DiagnosticUtc(Cutoff(context))) +
+            SaveDiagnosticReport(item, context, L"{\"windowStartUtc\":" + JsonQuote(DiagnosticUtc(Cutoff(context))) +
                                          L",\"collectedAtUtc\":" + JsonQuote(DiagnosticUtc(context.now)) +
                                          L",\"maxDumpFileBytes\":" + std::to_wstring(context.maxDumpFileBytes) +
                                          L",\"maxDumpTotalBytes\":" + std::to_wstring(context.maxDumpTotalBytes) +
@@ -403,9 +404,13 @@ namespace elm
             throw Error(code, L"提交诊断文件");
         }
     }
-    void SaveDiagnosticJson(CollectedLog &item, const std::wstring &text)
+    void SaveDiagnosticReport(CollectedLog &item, const DiagnosticContext &context, const std::wstring &text)
     {
-        WriteDiagnosticFile(item.path, text);
+        const auto state = item.state == CollectionState::Running || item.state == CollectionState::Waiting
+                               ? CollectionState::Saved : item.state;
+        const auto title = !item.caption.empty() ? item.caption : !item.channel.empty() ? item.channel : L"诊断报告";
+        WriteDiagnosticFile(item.path, ReportHtml(title, text, context.output, item.path, item.channel,
+                                                  CollectionStateName(state), item.message));
         item.bytes = fs::file_size(item.path);
         for (const auto &file : item.files)
             if (file.state == CollectionState::Saved)
@@ -439,7 +444,7 @@ namespace elm
     void CollectDumpFiles(CollectedLog &item, DiagnosticContext &context, bool live)
     {
         const auto folder = context.output / (live ? L"LiveKernelReports" : L"CrashDumps");
-        item.path = (folder / L"index.json").wstring();
+        item.path = (folder / L"index.html").wstring();
         std::vector<Candidate> candidates;
         size_t scanned = 0;
         if (live)
@@ -475,7 +480,7 @@ namespace elm
     void CollectWerReports(CollectedLog &item, DiagnosticContext &context)
     {
         const auto folder = context.output / L"WerReports";
-        item.path = (folder / L"index.json").wstring();
+        item.path = (folder / L"index.html").wstring();
         std::vector<Candidate> candidates;
         size_t scanned = 0;
         const auto select = [](const fs::path &path)
@@ -503,7 +508,7 @@ namespace elm
     void CollectDriverInstallation(CollectedLog &item, DiagnosticContext &context)
     {
         const auto folder = context.output / L"DriverInstallation";
-        item.path = (folder / L"index.json").wstring();
+        item.path = (folder / L"index.html").wstring();
         std::vector<Candidate> candidates;
         for (const auto *name : {L"setupapi.dev.log", L"setupapi.dev.log.old", L"setupapi.app.log"})
             AddSingle(item, context.windows / L"INF" / name, name, false, false, candidates);
@@ -518,7 +523,7 @@ namespace elm
     }
     void CollectDiagnosticEvents(CollectedLog &item, const DiagnosticContext &context)
     {
-        item.path = (context.output / L"DiagnosticEvents" / L"index.json").wstring();
+        item.path = (context.output / L"DiagnosticEvents" / L"index.html").wstring();
         for (const auto *channel : {
                  L"Microsoft-Windows-Kernel-PnP/Configuration", L"Microsoft-Windows-DriverFrameworks-UserMode/Operational",
                  L"Microsoft-Windows-DeviceSetupManager/Admin", L"Microsoft-Windows-DeviceSetupManager/Operational",
@@ -574,7 +579,7 @@ namespace elm
     }
     void CollectTimeline(CollectedLog &item, const DiagnosticContext &context, const CollectionResult &result)
     {
-        item.path = (context.output / L"Timeline.json").wstring();
+        item.path = (context.output / L"Timeline.html").wstring();
         std::vector<Event> events;
         size_t characters = 0;
         std::vector<std::pair<std::wstring, std::wstring>> sources;
@@ -662,7 +667,7 @@ namespace elm
             }
         item.state = failed ? CollectionState::Partial : CollectionState::Saved;
         item.message = L"已整理 " + std::to_wstring(events.size()) + L" 条事件；以来源、事件 ID 和时间共同判断。";
-        SaveDiagnosticJson(item, json + L"\n]}\n");
+        SaveDiagnosticReport(item, context, json + L"\n]}\n");
     }
     void CollectPowerReports(CollectedLog &item, const DiagnosticContext &context)
     {
@@ -673,7 +678,7 @@ namespace elm
             return;
         }
         const auto folder = context.output / L"PowerReports";
-        item.path = (folder / L"index.json").wstring();
+        item.path = (folder / L"index.html").wstring();
         fs::create_directories(folder);
         wchar_t system[32768]{};
         const auto systemLength = GetSystemDirectoryW(system, static_cast<UINT>(std::size(system)));

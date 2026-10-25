@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>@@TITLE@@ · EventLogCollector</title>
+<style>
+:root{font-family:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;color:#24334a;background:#f5f7fb;font-size:14px;line-height:1.6;color-scheme:light;--blue:#2356c8;--muted:#65748b;--border:#e4e9f1}
+*{box-sizing:border-box}body{margin:0}a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}button,input,select{font:inherit}button,select{cursor:pointer}button,a,input,select{outline-offset:4px}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--blue)}button{border:1px solid #dce3ee;border-radius:7px;background:#fff;padding:6px 13px;color:#33435d}button:hover{background:#edf3ff;border-color:#b6c8ec}button:disabled{opacity:.4;cursor:default}button.primary{background:var(--blue);border-color:var(--blue);color:#fff}button.quiet{border:0;background:transparent;color:var(--blue);padding:3px 5px;white-space:nowrap}
+.rail{position:fixed;inset:0 auto 0 0;width:230px;padding:30px 20px;background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:22px;overflow-y:auto}.brand{display:flex;align-items:center;gap:10px;color:#263a59;font-size:15px;font-weight:700}.logo{width:34px;height:34px;background:#eaf0ff;border-radius:9px;display:grid;place-items:center;color:var(--blue);flex-shrink:0}.brand small{display:block;color:var(--muted);font-size:11px;font-weight:400;letter-spacing:.8px}.home{display:block;padding:11px 12px;border-radius:8px;background:#edf3ff;color:var(--blue);font-weight:600}.nav-label{font-size:11px;color:#8a96a8;padding:0 12px;margin-bottom:6px;letter-spacing:1.5px}nav a{display:block;color:#65748b;padding:8px 12px;border-radius:7px;font-size:13px;overflow-wrap:anywhere}nav a:hover{background:#f4f6fa;color:var(--blue);text-decoration:none}.rail-foot{margin-top:auto;font-size:11px;color:#8a96a8;padding:12px}.rail-foot strong{display:block;font-weight:500;color:#65748b;font-size:12px}
+main{margin-left:230px;padding:34px 42px 48px;max-width:1690px}.topline{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:26px;color:var(--muted);font-size:12px}.topline>span{letter-spacing:1px}.top-actions{display:flex;gap:8px}.eyebrow{font-size:11px;color:var(--blue);font-weight:600;letter-spacing:1.6px;margin-bottom:6px}h1{font-size:29px;line-height:1.4;font-weight:650;letter-spacing:-.5px;margin:0 0 9px;color:#1a2c48}.subtitle{color:var(--muted);margin:0;overflow-wrap:anywhere}.heading{margin-bottom:23px}.heading .badge{margin-left:12px;vertical-align:middle}.badge{display:inline-block;font-size:11px;line-height:21px;padding:1px 9px;border-radius:5px;background:#edf0f5;color:#65748b;white-space:nowrap;font-weight:500}.badge.saved{background:#e9f6f0;color:#217356}.badge.partial,.badge.warning{background:#fff4dd;color:#996211}.badge.failed,.badge.critical,.badge.error{background:#fceced;color:#b13b4b}.badge.cancelled{background:#f5edf9;color:#8253a5}.badge.running{background:#eaf0ff;color:var(--blue)}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:24px}.stat{background:#fff;border:1px solid var(--border);border-radius:11px;padding:16px 20px}.stat-label{font-size:12px;color:var(--muted)}.stat-value{font-size:29px;font-weight:650;color:#243a5c;line-height:1.35;margin-top:6px;font-variant-numeric:tabular-nums}.stat-value.green{color:#217356}.stat-value.amber{color:#996211}.stat-value small{font-size:12px;font-weight:400;color:var(--muted);margin-left:5px}.notice{border:1px solid #dae5f8;background:#edf3ff;border-radius:9px;padding:13px 17px;margin:18px 0;color:#486186;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}.notice.warn{background:#fff8e9;border-color:#efdfb9;color:#866121}.notice.danger{background:#fff0f1;border-color:#f1d6d9;color:#a43e4b}
+.tools{display:flex;align-items:center;gap:12px;margin:22px 0 18px}.search{position:relative;flex:1;max-width:580px}.search span{position:absolute;left:13px;top:9px;color:#7b8da8}.search input{width:100%;padding:10px 14px 10px 38px;border:1px solid #dce3ee;border-radius:8px;background:#fff;color:#24334a}.tools small{color:#8a96a8}.section{background:#fff;border:1px solid var(--border);border-radius:11px;margin-bottom:20px;scroll-margin-top:18px;overflow:hidden}.section-head{padding:18px 22px;border-bottom:1px solid #edf0f5;display:flex;align-items:center;justify-content:space-between;gap:12px}.section-head h2{font-size:15px;font-weight:600;margin:0;color:#263b59}.section-head p{font-size:12px;color:#8a96a8;margin:3px 0 0}.section-body{padding:19px 22px}.section .notice{margin:14px 22px}.table-tools{display:flex;align-items:center;justify-content:space-between;padding:12px 22px;gap:14px;font-size:12px;color:var(--muted)}select{border:1px solid #dce3ee;border-radius:6px;padding:5px 9px;color:#53657f;background:white;max-width:100%}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:12px;text-align:left;table-layout:fixed}thead{background:#f8fafc;color:#748198}th{font-weight:500;border-bottom:1px solid var(--border);padding:11px 16px;vertical-align:top}td{border-bottom:1px solid #edf0f5;padding:13px 16px;vertical-align:top;overflow-wrap:anywhere}th:first-child,td:first-child{padding-left:22px}th:last-child,td:last-child{padding-right:22px}tbody tr.data-row:hover{background:#fafcff}.cell-title{display:block;color:#2c405d;font-weight:600;margin-bottom:3px}.cell-sub{display:block;color:#8b97a9;font-size:11px;font-weight:400}.clip{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap}.path{font-family:Consolas,monospace;font-size:11px;color:#6c7b91;overflow-wrap:anywhere}.actions{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.file-link{font-size:12px;white-space:nowrap}.pager{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 22px;font-size:12px;color:#8a96a8}.pager-controls{display:flex;align-items:center;gap:10px}.pager button{font-size:12px;padding:4px 10px}.empty{text-align:center;padding:32px;color:#8a96a8}.detail-row>td{padding:20px 22px;background:#f8faff}.detail-row[hidden]{display:none}.kv{display:grid;grid-template-columns:minmax(135px,205px) minmax(0,1fr);margin:0;font-size:12px}.kv dt{padding:9px 16px 9px 0;color:#718098;border-bottom:1px solid #edf0f5;overflow-wrap:anywhere}.kv dd{padding:9px 0;margin:0;color:#344861;border-bottom:1px solid #edf0f5;white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}.kv dt small{display:block;color:#9aa5b5;font-size:10px}.kv .kv{padding:0 0 3px}.kv dd p{margin:0 0 5px}.kv pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;overflow:auto;margin:0;padding:12px;background:#edf1f7;border-radius:6px;font-size:11px;font-family:Consolas,monospace}.footer{font-size:11px;color:#929dae;padding:4px 2px;display:flex;justify-content:space-between;gap:15px}.render-error{margin:24px 0;padding:20px;border:1px solid #f1d6d9;background:#fff0f1;color:#a43e4b;border-radius:8px}
+@media(min-width:1550px){main{padding-left:56px;padding-right:56px}}@media(max-width:1050px){.rail{width:194px;padding:26px 14px}.brand{font-size:13px}.logo{width:28px;height:28px}main{margin-left:194px;padding:28px 24px}.tools small{display:none}.kv{grid-template-columns:150px minmax(0,1fr)}}@media(max-width:760px){.rail{position:static;width:auto;padding:16px 20px;display:block;border-right:0;border-bottom:1px solid var(--border)}.rail .home{margin-top:12px;padding:7px 10px}.rail nav,.rail-foot{display:none}main{margin:0;padding:23px 16px}.topline{margin-bottom:20px}.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.stat{padding:12px 16px}h1{font-size:25px}.section-head{padding:16px}.table-wrap table{min-width:680px}.kv{grid-template-columns:120px minmax(0,1fr)}.kv .kv{grid-template-columns:1fr}.kv .kv dt{padding-bottom:0}.kv .kv dd{padding-top:2px}.pager{padding:12px 16px;flex-wrap:wrap}.footer{flex-direction:column;gap:3px}}
+@media print{.rail,.top-actions,.tools,.table-tools,.pager-controls,.actions button{display:none}main{margin:0;padding:0;max-width:none}body{background:#fff}.section{break-inside:avoid;border-color:#ccc;overflow:visible}.stats{gap:10px}.table-wrap{overflow:visible}table{font-size:10px}.footer{margin-top:15px}.clip{display:block}.detail-row>td{background:white}a{color:inherit}.notice{background:#f8f8f8}}
+</style>
+</head>
+<body>
+<aside class="rail">
+  <div class="brand"><span class="logo" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></span><div>EventLogCollector<small>WINDOWS DIAGNOSTICS</small></div></div>
+  <a class="home" id="home" href="#">↗ 采集总览</a>
+  <nav aria-label="报告目录"><div class="nav-label">本页内容</div><div id="nav"></div></nav>
+  <div class="rail-foot"><strong>本地诊断报告</strong>无需联网 · 数据随报告保存</div>
+</aside>
+<main>
+  <div class="topline"><span>日志与诊断 / <span id="breadcrumb">采集报告</span></span><div class="top-actions"><button id="print" title="打印当前筛选与分页中可见的内容">打印当前页</button></div></div>
+  <header class="heading"><div class="eyebrow">COLLECTION REPORT</div><h1>@@TITLE@@</h1><p class="subtitle" id="subtitle">正在整理本地报告…</p></header>
+  <div id="summary"></div>
+  <div id="notes"></div>
+  <div class="tools"><label class="search"><span aria-hidden="true">⌕</span><input type="search" id="search" aria-label="搜索本页报告内容" placeholder="搜索名称、事件 ID、驱动版本或文件路径…"></label><small>搜索本页全部记录，包括详情中的字段</small></div>
+  <div id="content"></div>
+  <noscript><p class="render-error">请在启用 JavaScript 的 Edge、Chrome 或 Firefox 中打开本报告，以查看表格、搜索和完整详情。报告可离线使用。</p></noscript>
+  <footer class="footer"><span id="foot-version">EventLogCollector</span><span>采集结果供排查参考 · 原始文件保留在采集目录中</span></footer>
+</main>
+<script type="application/json" id="report-settings">@@SETTINGS@@</script>
+<script type="application/json" id="report-data">@@DATA@@</script>
+<script>
+"use strict";
+(() => {
+  const $ = id => document.getElementById(id);
+  const node = (tag, text, className) => {
+    const result = document.createElement(tag);
+    if (text !== undefined && text !== null) result.textContent = String(text);
+    if (className) result.className = className;
+    return result;
+  };
+  try {
+    const data = JSON.parse($("report-data").textContent);
+    const settings = JSON.parse($("report-settings").textContent);
+    const states = {saved:"已保存",failed:"失败",partial:"部分完成",not_found:"未找到",skipped:"已跳过",cancelled:"已取消",waiting:"待采集",running:"采集中"};
+    const levels = {0:"未指定",1:"严重",2:"错误",3:"警告",4:"信息",5:"详细"};
+    const captions = {
+      Win32_OperatingSystem:"操作系统",Win32_ComputerSystem:"计算机",Win32_BIOS:"BIOS",Win32_BaseBoard:"主板",Win32_Processor:"处理器",Win32_PhysicalMemory:"内存",Win32_VideoController:"显卡",Win32_DiskDrive:"物理磁盘",Win32_LogicalDisk:"分区与空间",Win32_QuickFixEngineering:"系统补丁",Win32_PnPSignedDriver:"设备驱动与签名",Win32_SystemDriver:"系统驱动服务",Win32_OSRecoveryConfiguration:"系统故障恢复",Win32_PageFileSetting:"分页文件配置",Win32_PageFileUsage:"分页文件使用情况"
+    };
+    const labels = {
+      source:"来源",path:"文件路径",status:"采集状态",bytes:"文件大小",modifiedUtc:"修改时间（UTC）",errorCode:"错误代码",message:"说明",error:"错误说明",caption:"采集项目",channel:"事件通道",files:"关联文件",class:"设备类别",name:"名称",description:"描述",manufacturer:"制造商",instanceId:"设备实例 ID",hardwareIds:"硬件 ID",service:"驱动服务",statusAvailable:"设备状态可用",configRet:"状态读取返回码",devNodeStatus:"设备节点状态",problemCode:"问题代码",driver:"关联驱动",DriverVersion:"驱动版本",DriverDate:"驱动包日期",ProviderName:"驱动提供商",InfPath:"INF 文件",InfSection:"INF 节",MatchingDeviceId:"匹配设备 ID",timeUtc:"记录时间（UTC）",timeLocal:"记录时间（本地）",provider:"事件来源",recordId:"记录编号",eventId:"事件 ID",level:"级别",category:"事件分类",xml:"原始事件 XML",key:"注册表路径",registryType:"注册表类型",value:"配置值",windowsVersion:"Windows 版本",powerStatus:"当前电源状态",windowsVolume:"Windows 所在卷",collectedAtUtc:"采集时间（UTC）",windowStartUtc:"范围起点（UTC）",windowEndUtc:"范围终点（UTC）",requestedDays:"请求历史天数",transitionReportDays:"电源转换报告天数",energyDurationSeconds:"现场能效采样（秒）",maxDumpFileBytes:"单个转储复制上限",maxDumpTotalBytes:"转储复制总上限",maxAuxiliaryTotalBytes:"辅助文件复制总上限",maxFiles:"单类文件复制上限",available:"数据可用",acLineStatus:"交流电状态",batteryFlag:"电池状态标志",batteryLifePercent:"电池剩余电量",freeBytes:"剩余空间",ProductName:"产品名称",DisplayVersion:"功能版本",CurrentBuildNumber:"内部版本号",UBR:"更新修订号",BuildLabEx:"完整构建标识",InstallationType:"安装类型",
+      Name:"名称",Caption:"名称",Description:"描述",Version:"版本",BuildNumber:"内部版本号",OSArchitecture:"系统架构",LastBootUpTime:"上次启动时间",InstallDate:"安装日期",TotalVisibleMemorySize:"可见内存（KiB）",FreePhysicalMemory:"空闲内存（KiB）",Manufacturer:"制造商",Model:"型号",SystemType:"系统类型",TotalPhysicalMemory:"物理内存",HypervisorPresent:"检测到虚拟机监控程序",SMBIOSBIOSVersion:"BIOS 版本",ReleaseDate:"发布日期",Product:"产品型号",NumberOfCores:"物理核心",NumberOfLogicalProcessors:"逻辑处理器",MaxClockSpeed:"最高频率（MHz）",DeviceLocator:"内存插槽",PartNumber:"部件编号",Capacity:"容量",Speed:"标称速度（MHz）",ConfiguredClockSpeed:"配置速度（MHz）",PNPDeviceID:"即插即用设备 ID",Status:"系统报告的状态",ConfigManagerErrorCode:"设备问题代码",FirmwareRevision:"固件版本",InterfaceType:"接口类型",Size:"容量",DeviceID:"设备 ID",DriveType:"驱动器类型",FileSystem:"文件系统",FreeSpace:"可用空间",HotFixID:"补丁编号",InstalledOn:"安装日期",DeviceName:"设备名称",DeviceClass:"设备类别",DriverProviderName:"驱动提供商",InfName:"INF 文件",IsSigned:"系统签名标记",Signer:"签名者",DisplayName:"显示名称",PathName:"驱动路径",State:"运行状态",Started:"已经启动",StartMode:"启动方式",ServiceType:"服务类型",DebugInfoType:"转储类型",DebugFilePath:"转储文件路径",MiniDumpDirectory:"小型转储目录",AutoReboot:"自动重新启动",WriteToSystemLog:"写入系统日志",OverwriteExistingDebugFile:"覆盖现有转储",InitialSize:"初始大小（MiB）",MaximumSize:"最大大小（MiB）",AllocatedBaseSize:"已分配大小（MiB）",CurrentUsage:"当前使用（MiB）",PeakUsage:"峰值使用（MiB）",TempPageFile:"临时分页文件",AutomaticManagedPagefile:"自动管理分页文件",CrashDumpEnabled:"转储类型",DumpFile:"系统转储路径",MinidumpDir:"小型转储目录",DedicatedDumpFile:"专用转储文件",DumpFileSize:"转储文件大小",LogEvent:"写入事件日志",Overwrite:"允许覆盖",AlwaysKeepMemoryDump:"始终保留内存转储",FilterPages:"页面筛选",PagingFiles:"分页文件设置",ExistingPageFiles:"现有分页文件"
+    };
+    Object.assign(labels,{computerName:"计算机名称",toolVersion:"工具版本",startedUtc:"采集开始（UTC）",finishedUtc:"采集结束（UTC）",timeZone:"时区",utcOffsetMinutes:"UTC 偏移（分钟）",directory:"采集目录",options:"采集选项",days:"近期诊断范围（天）",includeLargeDumps:"允许复制大转储",powerReports:"采集电源报告",energyReport:"现场能效采样"});
+    const label = key => Object.hasOwn(labels,key) ? labels[key] : key;
+    const numeric = value => value !== null && value !== "" && Number.isFinite(Number(value));
+    function size(value) {
+      if (!numeric(value)) return "未提供";
+      let amount = Number(value), unit = 0;
+      const units = ["B","KiB","MiB","GiB","TiB"];
+      while (amount >= 1024 && unit < units.length - 1) { amount /= 1024; unit++; }
+      return amount.toLocaleString("zh-CN", {maximumFractionDigits:unit ? 2 : 0}) + " " + units[unit];
+    }
+    function valueText(key, value) {
+      if (value === null || value === undefined || value === "") return key === "error" ? "—" : "未提供";
+      if (typeof value === "boolean") return value ? "是" : "否";
+      if (key === "level") return levels[value] || String(value);
+      if (key === "status" && Object.hasOwn(states,value)) return states[value];
+      if (["bytes","freeBytes","maxDumpFileBytes","maxDumpTotalBytes","maxAuxiliaryTotalBytes","TotalPhysicalMemory","Capacity","Size","FreeSpace"].includes(key)) return size(value);
+      if (key === "problemCode" || key === "ConfigManagerErrorCode") return Number(value) === 0 ? "0 · 无问题代码" : String(value);
+      if (key === "acLineStatus") return ({0:"电池供电",1:"已连接交流电",255:"未知"})[value] || String(value);
+      if (key === "batteryLifePercent") return Number(value) === 255 ? "未知 / 无电池" : value + "%";
+      if (Array.isArray(value)) return value.map(v => typeof v === "object" && v ? JSON.stringify(v) : String(v)).join("\n") || "无记录";
+      return String(value);
+    }
+    function badge(state) {
+      const known = Object.hasOwn(states,state);
+      return node("span",known ? states[state] : state || "未知", "badge" + (known ? " " + state : ""));
+    }
+    function localHref(path) {
+      if (typeof path !== "string" || !path) return null;
+      const root = settings.root.replace(/\\/g,"/").replace(/\/+$/, "") + "/";
+      const normalized = path.replace(/\\/g,"/");
+      if (!normalized.toLowerCase().startsWith(root.toLowerCase())) return null;
+      const parts = normalized.slice(root.length).split("/");
+      if (parts.some(p => !p || p === "." || p === ".." || /[:\x00-\x1f]/.test(p))) return null;
+      return settings.base + parts.map(encodeURIComponent).join("/");
+    }
+    function fileLink(row, overview) {
+      const allowed = overview ? Number(row.bytes) > 0 : row.status === "saved" || (/\.txt$/i.test(row.path || "") && Number(row.bytes) > 0);
+      const href = allowed && localHref(row.path);
+      if (!href) return null;
+      const link = node("a",/\.html$/i.test(row.path) ? "查看报告 ↗" : "打开文件 ↗","file-link");
+      link.href = href;
+      return link;
+    }
+    function fields(object) {
+      const list = node("dl",null,"kv");
+      for (const [key,value] of Object.entries(object)) {
+        const term = node("dt",label(key));
+        if (label(key) !== key) term.append(node("small",key));
+        const detail = node("dd");
+        if (key === "xml") detail.append(node("pre",valueText(key,value)));
+        else if (value && typeof value === "object" && !Array.isArray(value)) detail.append(fields(value));
+        else if (Array.isArray(value) && value.some(v => v && typeof v === "object")) {
+          if (!value.length) detail.append(node("span","无记录"));
+          value.forEach(v => detail.append(v && typeof v === "object" ? fields(v) : node("p",String(v))));
+        } else detail.textContent = valueText(key,value);
+        list.append(term,detail);
+      }
+      return list;
+    }
+    function notice(text, tone, parent = $("notes")) {
+      if (text) parent.append(node("div",text,"notice" + (tone ? " " + tone : "")));
+    }
+    let sectionId = 0;
+    function section(title, description) {
+      const block = node("section",null,"section"); block.id = "section-" + ++sectionId;
+      const head = node("div",null,"section-head"), text = node("div");
+      text.append(node("h2",title)); if (description) text.append(node("p",description));
+      head.append(text); block.append(head); $("content").append(block);
+      const link = node("a",title); link.href = "#" + block.id; $("nav").append(link);
+      return block;
+    }
+    function metadata(title, object) {
+      if (!Object.keys(object).length) return;
+      const block = section(title), body = node("div",null,"section-body"); body.append(fields(object)); block.append(body);
+    }
+    function stats(items) {
+      const grid = node("div",null,"stats");
+      items.forEach(([title,value,unit,tone]) => {
+        const card = node("div",null,"stat"), number = node("div",value,"stat-value" + (tone ? " " + tone : ""));
+        if (unit) number.append(node("small",unit)); card.append(node("div",title,"stat-label"),number); grid.append(card);
+      }); $("summary").append(grid);
+    }
+    const tables = [], searchCache = new WeakMap(); let query = "";
+    function searchText(value) {
+      if (Array.isArray(value)) return value.map(searchText).join(" ");
+      if (value && typeof value === "object") return Object.entries(value).map(([key,item]) => label(key) + " " + key + " " + searchText(item)).join(" ");
+      return value === null || value === undefined ? "" : String(value);
+    }
+    function table(block, rows, columns, mode) {
+      const controls = node("div",null,"table-tools"), count = node("span"), filter = node("select");
+      filter.setAttribute("aria-label",block.querySelector("h2").textContent + "筛选");
+      let choices = [["all","全部记录"]];
+      if (mode === "events") choices = [["all","全部级别"],["1","严重"],["2","错误"],["3","警告"],["4","信息"],["5","详细"],["0","未指定"]];
+      else if (mode === "devices") choices = [["all","全部设备"],["issue","有问题代码"],["unknown","状态不可用"]];
+      else if (rows.some(row => Object.hasOwn(row,"status"))) choices = [["all","全部状态"],...Object.entries(states).filter(([key]) => rows.some(row => row.status === key))];
+      choices.forEach(([value,text]) => { const option = node("option",text); option.value = value; filter.append(option); });
+      controls.append(count); if (choices.length > 1) controls.append(filter); block.append(controls);
+      const wrapper = node("div",null,"table-wrap"), grid = node("table"), head = node("thead"), header = node("tr"), body = node("tbody");
+      const widths = mode === "overview" ? ["26%","14%","13%","28%"] : mode === "events" ? ["19%","10%","10%","24%","24%"] : mode === "devices" ? ["30%","17%","18%","22%"] : null;
+      columns.forEach((key,index) => { const cell = node("th",label(key)); cell.scope = "col"; if (widths) cell.style.width = widths[index]; header.append(cell); });
+      const actionHead = node("th","操作"); actionHead.scope = "col"; actionHead.style.width = mode === "events" ? "13%" : mode === "overview" ? "19%" : "13%"; header.append(actionHead);
+      head.append(header); grid.append(head,body); wrapper.append(grid); block.append(wrapper);
+      const pager = node("div",null,"pager"), range = node("output"), buttons = node("div",null,"pager-controls"), previous = node("button","上一页"), next = node("button","下一页"), pageText = node("span");
+      range.setAttribute("aria-live","polite"); buttons.append(previous,pageText,next); pager.append(range,buttons); block.append(pager);
+      const pageSize = 50; let page = 0, filtered = rows;
+      function matches(row) {
+        const selected = filter.value;
+        if (mode === "events" && selected !== "all" && String(row.level) !== selected) return false;
+        if (mode === "devices" && selected === "issue" && !(row.statusAvailable && row.problemCode !== null && Number(row.problemCode) !== 0)) return false;
+        if (mode === "devices" && selected === "unknown" && row.statusAvailable) return false;
+        if (mode !== "devices" && mode !== "events" && selected !== "all" && row.status !== selected) return false;
+        if (!query) return true;
+        if (!searchCache.has(row)) searchCache.set(row,searchText(row).toLowerCase());
+        return searchCache.get(row).includes(query);
+      }
+      function draw(reset) {
+        if (reset) { page = 0; filtered = rows.filter(matches); }
+        body.replaceChildren(); count.textContent = "共 " + rows.length.toLocaleString() + " 条记录";
+        const start = page * pageSize, shown = filtered.slice(start,start + pageSize);
+        shown.forEach(row => {
+          const line = node("tr",null,"data-row"), detailLine = node("tr",null,"detail-row"), detailCell = node("td");
+          detailLine.hidden = true; detailCell.colSpan = columns.length + 1; detailLine.append(detailCell);
+          columns.forEach(key => {
+            const cell = node("td");
+            if (key === "status") cell.append(badge(row.status));
+            else if (key === "level") cell.append(node("span",valueText(key,row.level),"badge " + ({1:"critical",2:"error",3:"warning"}[row.level] || "")));
+            else if (key === "caption") { cell.append(node("span",row.caption,"cell-title"),node("span",row.channel,"cell-sub")); }
+            else if (key === "name" && mode === "devices") { cell.append(node("span",row.name || row.description || "未命名设备","cell-title"),node("span",row.instanceId || "实例 ID 未提供","cell-sub path")); }
+            else if (key === "source") { const name = String(row.path || "").replace(/\\/g,"/").split("/").pop(); cell.append(node("span",name || "来源记录","cell-title"),node("span",row.source,"cell-sub path")); }
+            else { const value = node("span",valueText(key,row[key]),"clip"); value.title = valueText(key,row[key]); cell.append(value); }
+            line.append(cell);
+          });
+          const actions = node("td"), actionsWrap = node("div",null,"actions"), link = fileLink(row,mode === "overview"), details = node("button","详情","quiet");
+          details.setAttribute("aria-expanded","false"); details.setAttribute("aria-label","查看" + (row.caption || row.name || row.DeviceName || row.source || "本条记录") + "详情");
+          details.addEventListener("click",() => {
+            detailLine.hidden = !detailLine.hidden; details.textContent = detailLine.hidden ? "详情" : "收起"; details.setAttribute("aria-expanded",String(!detailLine.hidden));
+            if (!detailLine.hidden && !detailCell.hasChildNodes()) detailCell.append(fields(row));
+          });
+          if (link) actionsWrap.append(link); actionsWrap.append(details); actions.append(actionsWrap); line.append(actions); body.append(line,detailLine);
+        });
+        if (!shown.length) { const line = node("tr"), empty = node("td",rows.length ? "没有符合筛选条件的记录" : "本次未采集到记录，请查看本页的状态和说明。","empty"); empty.colSpan = columns.length + 1; line.append(empty); body.append(line); }
+        const pages = Math.max(1,Math.ceil(filtered.length / pageSize));
+        range.textContent = filtered.length ? "显示 " + (start + 1) + "–" + Math.min(start + pageSize,filtered.length) + " / " + filtered.length.toLocaleString() + " 条" : "0 条记录";
+        pageText.textContent = (page + 1) + " / " + pages; previous.disabled = page === 0; next.disabled = page + 1 >= pages;
+      }
+      previous.addEventListener("click",() => { page--; draw(false); }); next.addEventListener("click",() => { page++; draw(false); }); filter.addEventListener("change",() => draw(true));
+      tables.push(() => draw(true)); draw(true);
+    }
+    const genericColumns = rows => {
+      const first = rows[0] || {}, preferred = ["DeviceName","DisplayName","Name","Model","HotFixID","DeviceLocator","Manufacturer","DriverProviderName","DriverVersion","InfName","IsSigned","State","StartMode","Version","Capacity","Size","FreeSpace","NumberOfCores","NumberOfLogicalProcessors"];
+      const keys = preferred.filter(key => Object.hasOwn(first,key)).slice(0,5);
+      return keys.length ? keys : Object.keys(first).filter(key => !["xml","key"].includes(key)).slice(0,5);
+    };
+    $("home").href = settings.base + "manifest.html"; $("breadcrumb").textContent = settings.title;
+    $("foot-version").textContent = "EventLogCollector " + (data.toolVersion || "1.3.0.0");
+    $("print").addEventListener("click",() => window.print());
+    let timer; $("search").addEventListener("input",() => { clearTimeout(timer); timer = setTimeout(() => { query = $("search").value.trim().toLowerCase(); tables.forEach(refresh => refresh()); },160); });
+    const overview = settings.kind === "collection";
+    if (overview) {
+      const entries = [...data.logs,...data.diagnostics], saved = entries.filter(row => row.status === "saved").length, attention = entries.filter(row => ["partial","failed","cancelled"].includes(row.status)).length;
+      $("subtitle").textContent = (data.computerName || "未知计算机") + " · " + data.startedUtc + "（UTC） · 近期诊断范围 " + data.options.days + " 天";
+      document.querySelector("h1").append(badge(data.cancelled ? "cancelled" : data.success ? "saved" : "partial"));
+      stats([["采集项目",entries.length,"项"],["已保存",saved,"项","green"],["需要关注",attention,"项",attention ? "amber" : ""],["采集用时",(data.elapsedMs / 1000).toFixed(1),"秒"]]);
+      if (data.error) notice(data.error,"danger");
+      if (attention) notice("部分项目未完整采集，原因已记录在下方列表和详情中。已经保存的文件仍可用于排查。","warn");
+      table(section("诊断报告","系统、设备、驱动与故障线索，点击「查看报告」打开详细内容"),data.diagnostics,["caption","status","bytes","error"],"overview");
+      table(section("原始事件日志","Windows 原始 EVTX 文件，可通过事件查看器或专业工具进一步分析"),data.logs,["caption","status","bytes","error"],"overview");
+      metadata("采集信息",{computerName:data.computerName,toolVersion:data.toolVersion,startedUtc:data.startedUtc,finishedUtc:data.finishedUtc,timeZone:data.timeZone,utcOffsetMinutes:data.utcOffsetMinutes,directory:data.directory,options:data.options});
+    } else {
+      $("subtitle").textContent = (data.collectedAtUtc || data.windowEndUtc || "") + ((data.collectedAtUtc || data.windowEndUtc) ? "（UTC） · " : "") + "本地采集快照 · 展开详情查看全部字段";
+      if (settings.status) document.querySelector("h1").append(badge(settings.status));
+      if (settings.message) notice(settings.message,["partial","failed","cancelled"].includes(settings.status) ? "warn" : "");
+      if (data.note) notice(data.note,"");
+      if (Array.isArray(data.events)) {
+        stats([["时间线事件",data.events.length,"条"],["严重 / 错误",data.events.filter(row => row.level === 1 || row.level === 2).length,"条","amber"],["警告",data.events.filter(row => row.level === 3).length,"条"],["事件来源",(data.sources || []).length,"个"]]);
+        table(section("故障时间线","按事件写入时间排序；消息与原始 XML 在详情中完整保留"),data.events,["timeLocal","level","eventId","provider","message"],"events");
+      }
+      if (Array.isArray(data.devices)) {
+        stats([["设备总数",data.devices.length,"个"],["有问题代码",data.devices.filter(row => row.statusAvailable && row.problemCode !== null && Number(row.problemCode) !== 0).length,"个","amber"],["状态不可用",data.devices.filter(row => !row.statusAvailable).length,"个"],["可读取状态",data.devices.filter(row => row.statusAvailable).length,"个","green"]]);
+        table(section("设备清单","包含当前设备与系统保留的非在场设备；可按问题代码筛选"),data.devices,["name","class","manufacturer","problemCode"],"devices");
+      }
+      if (Array.isArray(data.files)) table(section("文件与采集结果","保存位置、来源、大小以及跳过或失败的具体原因"),data.files,["source","status","bytes","message"],"files");
+      if (Array.isArray(data.registry)) table(section("注册表配置","仅读取；未找到的配置可能采用 Windows 默认值"),data.registry,["name","value","status"],"registry");
+      if (Array.isArray(data.sections)) for (const part of data.sections) {
+        const block = section(captions[part.class] || part.class,part.class); block.querySelector(".section-head").append(badge(part.status));
+        if (part.message) notice(part.message,part.status === "failed" || part.status === "partial" ? "warn" : "",block);
+        table(block,part.rows || [],genericColumns(part.rows || []),"wmi");
+      }
+      if (Array.isArray(data.sources)) table(section("时间线数据来源","各通道读取情况与可能缺失的来源"),data.sources,["source","status","message"],"files");
+      const remaining = Object.fromEntries(Object.entries(data).filter(([key,value]) => !["events","devices","files","registry","sections","sources","note"].includes(key) && value !== undefined));
+      metadata("报告信息与配置",remaining);
+    }
+    // Report metadata is also kept as typed data for command-line consumers.
+    $("subtitle").title = settings.root;
+  } catch (error) {
+    $("subtitle").textContent = "报告加载失败";
+    $("content").append(node("p","无法展示报告内容：" + error.message,"render-error"));
+  }
+})();
+</script>
+</body>
+</html>

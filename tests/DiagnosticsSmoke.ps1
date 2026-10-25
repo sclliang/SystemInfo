@@ -32,4 +32,9 @@ $jsonFiles = @(Get-ChildItem -LiteralPath $testRoot -Filter '*.json' -File -Recu
 foreach ($file in $jsonFiles) {
     $null = Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json
 }
-Write-Host "PASS: Independently parsed $($jsonFiles.Count) JSON artifacts. Fixtures: $testRoot"
+$reports = @(Get-ChildItem -LiteralPath $testRoot -Filter '*.html' -File -Recurse | Where-Object {
+    (Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8) -match 'id="report-data"'
+})
+if ($reports.Count -lt 10) { throw 'Expected persisted HTML reports for diagnostic fixtures.' }
+foreach ($file in $reports) { $null = Read-TestReport $file.FullName }
+Write-Host "PASS: Independently parsed $($reports.Count) embedded HTML datasets and $($jsonFiles.Count) atomic JSON fixture. Fixtures: $testRoot"

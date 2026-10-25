@@ -19,3 +19,11 @@ function ConvertFrom-TestJson {
         $parsed
     }
 }
+
+function Read-TestReport([string]$Path) {
+    $html = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    if ($html -notmatch '(?i)^\s*<!doctype html>') { throw "Not an HTML report: $Path" }
+    $data = [regex]::Match($html, '(?s)<script type="application/json" id="report-data">(.*?)</script>')
+    if (-not $data.Success) { throw "Report data was not embedded: $Path" }
+    return ConvertFrom-Json -InputObject $data.Groups[1].Value
+}

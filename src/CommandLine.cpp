@@ -115,7 +115,7 @@ namespace elm
 
     std::wstring CommandLineHelp()
     {
-        return LR"HELP(EventLogCollector 1.2.0.0
+        return LR"HELP(EventLogCollector 1.3.0.0
 Windows Event Log and Diagnostic Collector (Win32 + FluentUI)
 
 Usage:
@@ -145,7 +145,7 @@ Collection:
   --power            Compatibility flag: power reports are now enabled by default
   --energy           Also sample energy efficiency for 60 s (120 s timeout), last.
                      Run with the computer idle. Cannot be combined with --no-power.
-  --json             Emit the result also saved as manifest.json (schema version 2)
+  --json             Emit JSON result (schema version 2); reports are saved as HTML
   Missing optional evidence and documented skips are not collection failures.
 
 Source (list/export):
@@ -204,7 +204,7 @@ In PowerShell, pipe stdout to Out-String when invoking interactively.
             }
             if (command == L"--version" && args.size() == 1)
             {
-                WriteOutput(L"EventLogCollector 1.2.0.0\n");
+                WriteOutput(L"EventLogCollector 1.3.0.0\n");
                 return 0;
             }
             if (command == L"--licenses" && args.size() == 1)

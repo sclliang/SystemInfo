@@ -1,4 +1,5 @@
 #include "../src/Diagnostics.h"
+#include "../src/HtmlReport.h"
 #include <shellapi.h>
 #include <fstream>
 #include <stdexcept>
@@ -196,7 +197,41 @@ void Run(const fs::path& root) {
     Assert(cappedItem.state == CollectionState::Partial, L"Directory scan truncation is reported as incomplete");
     bool clean = true;
     for (const auto& entry : fs::recursive_directory_iterator(root)) if (entry.path().extension() == L".tmp") clean = false;
-    Assert(clean, L"No temporary copy or JSON file remains");
+    Assert(clean, L"No temporary copy or report file remains");
+    const auto reportRoot = root / L"HTML 报告 #100%";
+    const auto reportPath = reportRoot / L"CrashDumps" / L"index.html";
+    const std::wstring hostile = L"</script><script>window.reportInjected=true</script><img src=x onerror=alert(1)>& 中文 @@DATA@@";
+    const auto html = ReportHtml(hostile, L"{\"message\":" + JsonQuote(hostile) + L"}", reportRoot, reportPath, L"CrashDumps");
+    Assert(html.find(L"<title>&lt;/script&gt;") != std::wstring::npos &&
+        html.find(L"\\u003c/script\\u003e") != std::wstring::npos && html.find(L"<script>window.reportInjected") == std::wstring::npos,
+        L"HTML titles and embedded evidence cannot close a script or inject markup");
+    Assert(html.find(L"\"base\":\"../\"") != std::wstring::npos && html.find(L"@@DATA@@") != std::wstring::npos,
+        L"Nested reports use relative links and evidence is never reinterpreted as a template token");
+    WriteDiagnosticFile(reportPath, html);
+    auto preview = InitialCollection(reportRoot.wstring());
+    preview.directory = reportRoot.wstring(); preview.manifestPath = (reportRoot / L"manifest.html").wstring();
+    preview.computerName = L"HTML-PREVIEW"; preview.startedUtc = DiagnosticUtc(context.now); preview.finishedUtc = preview.startedUtc;
+    preview.finished = true; preview.manifestSaved = true; preview.elapsedMs = 2400;
+    for (auto *entry : CollectionEntries(preview)) entry->state = CollectionState::Skipped;
+    auto &devices = preview.diagnostics[4]; devices.state = CollectionState::Saved;
+    devices.path = (reportRoot / L"Devices.html").wstring();
+    std::wstring deviceData = L"{\"note\":\"用于验证分页、筛选、搜索与原始字段保留。\",\"devices\":[";
+    for (unsigned i = 0; i < 123; ++i) {
+        if (i) deviceData += L",";
+        deviceData += L"{\"name\":" + JsonQuote(i == 122 ? hostile : L"测试设备 " + std::to_wstring(i)) +
+            L",\"instanceId\":" + JsonQuote(L"PCI\\FIXTURE_" + std::to_wstring(i)) +
+            L",\"class\":\"System\",\"manufacturer\":\"Fixture\",\"statusAvailable\":true,\"problemCode\":" +
+            std::to_wstring(i == 75 ? 28 : 0) + L",\"driver\":{\"DriverVersion\":\"1.2.3.456\",\"InfPath\":\"fixture.inf\"}}";
+    }
+    auto previewContext = context; previewContext.output = reportRoot;
+    SaveDiagnosticReport(devices, previewContext, deviceData + L"]}");
+    auto &evidence = preview.diagnostics[0]; evidence.state = CollectionState::Saved;
+    evidence.path = reportPath.wstring(); evidence.bytes = fs::file_size(reportPath);
+    CollectedFile encoded; encoded.source = L"Fixture"; encoded.path = (reportRoot / L"CrashDumps" / L"报告 #100%.txt").wstring();
+    encoded.state = CollectionState::Saved; encoded.bytes = 8;
+    WriteDiagnosticFile(encoded.path, L"evidence"); evidence.files.push_back(encoded);
+    SaveDiagnosticReport(evidence, previewContext, L"{\"files\":" + CollectedFilesJson(evidence.files) + L"}");
+    WriteDiagnosticFile(preview.manifestPath, ReportHtml(L"日志与诊断采集报告", CollectionJson(preview), reportRoot, preview.manifestPath, L"collection"));
     PowerFixtures(root);
     WriteDiagnosticFile(root / L"report.txt", report);
 }

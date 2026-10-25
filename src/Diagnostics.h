@@ -38,5 +38,5 @@ namespace elm
     std::wstring ExpandedEnvironment(const std::wstring &value);
     std::wstring ReadRegistryString(HKEY root, const wchar_t *key, const wchar_t *name);
     void WriteDiagnosticFile(const std::filesystem::path &path, const std::wstring &text);
-    void SaveDiagnosticJson(CollectedLog &item, const std::wstring &text);
+    void SaveDiagnosticReport(CollectedLog &item, const DiagnosticContext &context, const std::wstring &text);
 }

@@ -4,9 +4,10 @@
 #include <winuser.h>
 LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 IDI_APP ICON "../assets/six6.ico"
+IDR_HTML_REPORT RCDATA "../assets/report.html"
 1 VERSIONINFO
- FILEVERSION 1,2,0,0
- PRODUCTVERSION 1,2,0,0
+ FILEVERSION 1,3,0,0
+ PRODUCTVERSION 1,3,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS VS_FF_DEBUG
@@ -24,12 +25,12 @@ BEGIN
             VALUE "CompanyName", "sixunited"
             VALUE "Author", "sclliang"
             VALUE "FileDescription", "Windows Event Log and Diagnostic Collector"
-            VALUE "FileVersion", "1.2.0.0"
+            VALUE "FileVersion", "1.3.0.0"
             VALUE "InternalName", "EventLogCollector"
             VALUE "LegalCopyright", "Copyright (c) 2026 sixunited. Author: sclliang"
             VALUE "OriginalFilename", "EventLogCollector.exe"
             VALUE "ProductName", "EventLogCollector"
-            VALUE "ProductVersion", "1.2.0.0"
+            VALUE "ProductVersion", "1.3.0.0"
         END
     END
     BLOCK "VarFileInfo"
