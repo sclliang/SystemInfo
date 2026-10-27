@@ -1,14 +1,16 @@
 # EventLogCollector · 事件日志收集器
 
-C++20 / 原生 Win32 + FluentUI SDK，Windows 10 / 11 x64，版本 **1.3.0.0**。
+C++20 / 原生 Win32 控制台程序，Windows 10 / 11 x64，版本 **1.3.0.0**。
 
 ## 一键采集
 
-双击 package/EventLogCollector.exe，在 Windows 管理员权限提示中选择“是”，程序立即显示浅色加载窗口，在后台收集事件日志和故障诊断信息。无需选择通道或点击开始。
+双击 package/EventLogCollector.exe，在 Windows 管理员权限提示中选择“是”，程序在控制台窗口中立即开始收集事件日志和故障诊断信息，无需选择通道或点击开始。界面以彩色文字逐项显示结果（已保存、部分完成、未找到、已跳过、失败），底部显示进度条、当前项目和用时；按 Ctrl+C 可取消，已完成的文件会保留。采集结束后显示汇总、**日志目录**和总览报告路径，按任意键退出。
+
+控制台按 Windows 显示语言选择文字：中文系统显示中文，其他语言系统显示英文，避免缺少中文字体的控制台出现乱码。英文模式下不显示采集核心的中文说明，详细原因见 manifest.html。
 
 每次创建一个独立目录：**EXE 所在目录/LOG/Collection_时间戳-进程号/**。时间戳包含毫秒，同名目录自动追加序号；重复运行保留旧结果。命令行指定输出位置时，也在该位置下创建本次独立目录。
 
-采集结束后点击 **查看报告**，或双击本次目录中的 **manifest.html** 打开中文总览。系统信息、设备、驱动、时间线和各类索引均生成 HTML，支持本页全文搜索、状态/事件级别/设备问题筛选、每页 50 条记录和展开完整字段。时间线详情保留消息与原始 XML。报告内嵌样式、脚本与数据，无需联网；使用启用 JavaScript 的 Edge、Chrome 或 Firefox 查看。复制整个采集目录后，相对文件链接仍可使用。打印按钮打印当前筛选和当前分页中可见的内容。
+采集结束后双击本次目录中的 **manifest.html** 打开中文总览。系统信息、设备、驱动、时间线和各类索引均生成 HTML，支持本页全文搜索、状态/事件级别/设备问题筛选、每页 50 条记录和展开完整字段。时间线详情保留消息与原始 XML。报告内嵌样式、脚本与数据，无需联网；使用启用 JavaScript 的 Edge、Chrome 或 Firefox 查看。复制整个采集目录后，相对文件链接仍可使用。打印按钮打印当前筛选和当前分页中可见的内容。
 
 | 类别 | 内容 |
 |---|---|
@@ -64,7 +66,7 @@ package/
 
 ## 状态、限制与诊断边界
 
-界面可滚动查看全部 **16 项**，区分已保存、未找到、已跳过、部分完成、失败和取消。展开“查看详情”可查看原因和路径。
+控制台逐项显示全部 **16 项**，区分已保存、未找到、已跳过、部分完成、失败和取消，并显示简要原因；完整原因和路径见 manifest.html。
 
 - 未找到可选转储、WER 报告或专用通道，不作为采集失败。
 - 未启用通道、不适用的电源报告、未选择的大转储，以及达到文件复制限额的条目，记录为跳过并说明原因。
@@ -84,7 +86,7 @@ package/
 
 ## 运行与命令行
 
-FluentUI 与 C/C++ 运行库静态链接，字体、图标内嵌，发布程序是单 EXE；无需安装开发环境、VC++ 运行库或 bin 目录。系统快照使用 Windows 自带 WMI，设备状态使用 SetupAPI/Configuration Manager；电源采集直接启动系统目录中的 powercfg.exe，不依赖 PATH 或工作目录。
+C/C++ 运行库静态链接，图标内嵌，发布程序是单 EXE；无需安装开发环境、VC++ 运行库或 bin 目录。系统快照使用 Windows 自带 WMI，设备状态使用 SetupAPI/Configuration Manager；电源采集直接启动系统目录中的 powercfg.exe，不依赖 PATH 或工作目录。
 
 最终 EXE 的清单为 requireAdministrator。双击由 Windows 请求管理员权限；拒绝 UAC 不会开始采集。管理员也可能受到设备策略或文件 ACL 限制，实际结果会记录到清单。
 
@@ -92,27 +94,27 @@ FluentUI 与 C/C++ 运行库静态链接，字体、图标内嵌，发布程序�
 
 ~~~powershell
 # 使用默认的一键采集范围，输出清单
-.\package\EventLogCollector.exe collect --json | Out-String
+.\package\EventLogCollector.exe collect --json
 
 # 在指定位置创建独立采集目录，近期范围改为 14 天
-.\package\EventLogCollector.exe collect --output 'D:\Collected Logs' --days 14 --json | Out-String
+.\package\EventLogCollector.exe collect --output 'D:\Collected Logs' --days 14 --json
 
 # 允许大转储，并追加现场能效采样（额外约 60 秒）
-.\package\EventLogCollector.exe collect --include-large-dumps --energy --json | Out-String
+.\package\EventLogCollector.exe collect --include-large-dumps --energy --json
 
 # 本次跳过全部电源报告
-.\package\EventLogCollector.exe collect --no-power --json | Out-String
+.\package\EventLogCollector.exe collect --no-power --json
 
-.\package\EventLogCollector.exe --help | Out-String
+.\package\EventLogCollector.exe --help
 ~~~
 
-无参数或 gui 打开自动采集窗口；collect 执行相同采集而不显示窗口。一键采集生成 HTML 报告，无独立 JSON 文件。命令行 --json 继续输出 schemaVersion 2 的完整结果；相同数据嵌入 manifest.html 的 report-data 元素中。保留 logs、diagnostics、时间与参数等字段；manifestPath 和各诊断项目 path 指向 HTML 文件。directory 指本次独立目录，rootDirectory 为父目录。旧采集目录保留原样。
+无参数（或兼容旧用法的 gui）执行一键采集并在结束后等待按键；collect 执行相同采集、显示相同进度，结束后直接退出，适合脚本。一键采集生成 HTML 报告，无独立 JSON 文件。命令行 --json 继续输出 schemaVersion 2 的完整结果；相同数据嵌入 manifest.html 的 report-data 元素中。保留 logs、diagnostics、时间与参数等字段；manifestPath 和各诊断项目 path 指向 HTML 文件。directory 指本次独立目录，rootDirectory 为父目录。旧采集目录保留原样。
 
 退出码：0 按所选范围完成（允许可选证据不存在或明确跳过），2 参数错误，4 有失败/部分完成或清单无法写入，5 取消。
 
 原有 channels、list、export、clear --channel NAME --yes 功能继续保留；单通道导出支持 EVTX / CSV / JSON / XML，过滤选项见 --help。
 
-程序为 GUI 子系统。交互式 PowerShell 加 | Out-String 可等待执行并读取输出；自动化脚本应等待进程结束并检查退出码。重定向输出与 JSON 为 UTF-8，powercfg 原始文本使用系统工具自己的编码。第三方许可通过 --licenses 查看。
+程序为控制台子系统，终端会等待执行结束；从非管理员终端启动时，Windows 会在新的管理员控制台窗口中运行。输出被重定向时不使用颜色和动画，也不等待按键。重定向输出与 JSON 为 UTF-8，powercfg 原始文本使用系统工具自己的编码。
 
 ## 构建与元数据
 
@@ -121,16 +123,15 @@ FluentUI 与 C/C++ 运行库静态链接，字体、图标内嵌，发布程序�
 ~~~powershell
 .\build.ps1
 .\build.ps1 -Configuration Debug
-.\build.ps1 -FluentUISdk 'D:\source\C++\FluentUI\sdk'
 ~~~
 
-SDK 默认位置为相邻项目 ../FluentUI/sdk。Release 自动发布到 package/EventLogCollector.exe。已安装 SDK 是 Release 静态库，因此 Debug 使用 /Od /Zi、/MT 和 _ITERATOR_DEBUG_LEVEL=0 保持 ABI 兼容。
+Release 自动发布到 package/EventLogCollector.exe。Debug 使用 /Od /Zi、/MT 和 _ITERATOR_DEBUG_LEVEL=0。
 
-可执行文件和项目元数据：Author/Authors 为 sclliang，CompanyName/Company 为 sixunited，版权为 Copyright (c) 2026 sixunited. Author: sclliang，FileVersion / ProductVersion 为 1.3.0.0。界面不显示作者或版权归属，默认浅色且不跟随系统切换为深色。
+可执行文件和项目元数据：Author/Authors 为 sclliang，CompanyName/Company 为 sixunited，版权为 Copyright (c) 2026 sixunited. Author: sclliang，FileVersion / ProductVersion 为 1.3.0.0。
 
-主要源码：Collector.* 编排采集与清单；HtmlReport.* 和 assets/report.html 生成内嵌数据的离线报告；Diagnostics.* 负责文件、专用事件、时间线和电源工具；SystemSnapshot.cpp 负责 WMI、设备与注册表；CollectorWindow.* 负责界面；EventLogService.* 封装事件 API；CommandLine.* 负责命令行。
+主要源码：Collector.* 编排采集与清单；HtmlReport.* 和 assets/report.html 生成内嵌数据的离线报告；Diagnostics.* 负责文件、专用事件、时间线和电源工具；SystemSnapshot.cpp 负责 WMI、设备与注册表；ConsoleUi.* 负责控制台进度与汇总；EventLogService.* 封装事件 API；CommandLine.* 负责命令行。
 
-Git 保存源码、图标、脚本和测试；FluentUI SDK 另行准备。build/、package/、LOG/ 及 EVTX 不提交。
+Git 保存源码、图标、脚本和测试。build/、package/、LOG/ 及 EVTX 不提交。
 
 ## 验证
 
@@ -149,12 +150,3 @@ Git 保存源码、图标、脚本和测试；FluentUI SDK 另行准备。build/
 .\tests\PowerSmoke.ps1
 .\tests\PowerSmoke.ps1 -IncludeEnergy
 
-# 加载、完成、失败、部分完成、取消、清单失败、诊断行滚动与缩放
-.\tests\UiSmoke.ps1
-
-# 离线 DOM 检查：传入上述测试产生的隔离样本根目录和实际 Collection 目录
-npm install --prefix build/html-validation --no-save jsdom@30.1.3
-node tests/ReportSmoke.js '<隔离样本根目录>' '<实际 Collection 目录>'
-~~~
-
-文件样本仅在 build/diagnostic-fixtures 的独立目录创建，不修改系统配置。界面测试用确定的样本生成 D2D 截图到 build/ui；样本截图不代表真实机器的采集结果。asInvoker 测试 EXE 只保留在 build，最终发布 EXE 仍要求管理员权限。

@@ -1,7 +1,6 @@
 param(
     [ValidateSet('Debug', 'Release')][string]$Configuration = 'Release',
-    [switch]$Rebuild,
-    [string]$FluentUISdk = (Join-Path $PSScriptRoot '..\FluentUI\sdk')
+    [switch]$Rebuild
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
@@ -11,7 +10,7 @@ $installation = & $locator -latest -products '*' -requires Microsoft.VisualStudi
 if (-not $installation) { throw 'Install Visual Studio C++ Desktop Development.' }
 $msbuild = Join-Path $installation 'MSBuild\Current\Bin\MSBuild.exe'
 $target = if ($Rebuild) { 'Rebuild' } else { 'Build' }
-& $msbuild (Join-Path $projectRoot 'EventLogCollector.sln') /m /nologo "/t:$target" "/p:Configuration=$Configuration" /p:Platform=x64 "/p:FluentUISdk=$FluentUISdk" /verbosity:minimal
+& $msbuild (Join-Path $projectRoot 'EventLogCollector.sln') /m /nologo "/t:$target" "/p:Configuration=$Configuration" /p:Platform=x64 /verbosity:minimal
 if ($LASTEXITCODE -ne 0) { throw "MSBuild failed: $LASTEXITCODE" }
 if ($Configuration -eq 'Release') {
     $package = Join-Path $projectRoot 'package'

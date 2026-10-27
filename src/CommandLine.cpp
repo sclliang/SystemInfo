@@ -1,7 +1,7 @@
 #include "CommandLine.h"
 #include "EventLogService.h"
 #include "Collector.h"
-#include <fluentui/fluentui.hpp>
+#include "ConsoleUi.h"
 #include <algorithm>
 #include <map>
 #include <set>
@@ -9,6 +9,43 @@
 
 namespace elm
 {
+    void WriteOutput(const std::wstring &value, bool error)
+    {
+        HANDLE handle = GetStdHandle(error ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
+        if (!handle || handle == INVALID_HANDLE_VALUE)
+            return;
+        DWORD mode = 0;
+        if (GetConsoleMode(handle, &mode))
+        {
+            size_t offset = 0;
+            while (offset < value.size())
+            {
+                DWORD written = 0;
+                DWORD length = static_cast<DWORD>(std::min<size_t>(value.size() - offset, 16000));
+                if (!WriteConsoleW(handle, value.data() + offset, length, &written, nullptr))
+                    throw Error(GetLastError(), L"Write console");
+                if (!written)
+                    throw Error(ERROR_WRITE_FAULT, L"Write console");
+                offset += written;
+            }
+        }
+        else
+        {
+            auto bytes = Utf8(value);
+            size_t offset = 0;
+            while (offset < bytes.size())
+            {
+                DWORD written = 0;
+                DWORD length = static_cast<DWORD>(std::min<size_t>(bytes.size() - offset, 1024 * 1024));
+                if (!WriteFile(handle, bytes.data() + offset, length, &written, nullptr))
+                    throw Error(GetLastError(), L"Write stdout/stderr");
+                if (!written)
+                    throw Error(ERROR_WRITE_FAULT, L"Write stdout/stderr");
+                offset += written;
+            }
+        }
+    }
+
     namespace
     {
         class UsageError : public std::exception
@@ -17,56 +54,6 @@ namespace elm
             explicit UsageError(std::wstring value) : message(std::move(value)) {}
             std::wstring message;
         };
-
-        void AttachOutput()
-        {
-            // AttachConsole may replace inherited pipe/file handles. Preserve redirection.
-            HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE), err = GetStdHandle(STD_ERROR_HANDLE);
-            const bool keepOut = out && out != INVALID_HANDLE_VALUE && GetFileType(out) != FILE_TYPE_UNKNOWN;
-            const bool keepErr = err && err != INVALID_HANDLE_VALUE && GetFileType(err) != FILE_TYPE_UNKNOWN;
-            AttachConsole(ATTACH_PARENT_PROCESS);
-            if (keepOut)
-                SetStdHandle(STD_OUTPUT_HANDLE, out);
-            if (keepErr)
-                SetStdHandle(STD_ERROR_HANDLE, err);
-        }
-
-        void WriteOutput(const std::wstring &value, bool error = false)
-        {
-            HANDLE handle = GetStdHandle(error ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
-            if (!handle || handle == INVALID_HANDLE_VALUE)
-                return;
-            DWORD mode = 0;
-            if (GetConsoleMode(handle, &mode))
-            {
-                size_t offset = 0;
-                while (offset < value.size())
-                {
-                    DWORD written = 0;
-                    DWORD length = static_cast<DWORD>(std::min<size_t>(value.size() - offset, 16000));
-                    if (!WriteConsoleW(handle, value.data() + offset, length, &written, nullptr))
-                        throw Error(GetLastError(), L"Write console");
-                    if (!written)
-                        throw Error(ERROR_WRITE_FAULT, L"Write console");
-                    offset += written;
-                }
-            }
-            else
-            {
-                auto bytes = Utf8(value);
-                size_t offset = 0;
-                while (offset < bytes.size())
-                {
-                    DWORD written = 0;
-                    DWORD length = static_cast<DWORD>(std::min<size_t>(bytes.size() - offset, 1024 * 1024));
-                    if (!WriteFile(handle, bytes.data() + offset, length, &written, nullptr))
-                        throw Error(GetLastError(), L"Write stdout/stderr");
-                    if (!written)
-                        throw Error(ERROR_WRITE_FAULT, L"Write stdout/stderr");
-                    offset += written;
-                }
-            }
-        }
 
         uint64_t Number(const std::wstring &text, const std::wstring &option, uint64_t maximum)
         {
@@ -116,17 +103,16 @@ namespace elm
     std::wstring CommandLineHelp()
     {
         return LR"HELP(EventLogCollector 1.3.0.0
-Windows Event Log and Diagnostic Collector (Win32 + FluentUI)
+Windows Event Log and Diagnostic Collector
 
 Usage:
-  EventLogCollector.exe                         Collect logs and diagnostics with progress UI
-  EventLogCollector.exe gui                     Collect logs and diagnostics with progress UI
+  EventLogCollector.exe                         Collect with live progress, then press any key to exit
   EventLogCollector.exe collect [--output DIR] [--days N] [--include-large-dumps] [--no-power | --energy] [--json]
   EventLogCollector.exe channels [--json]        List local event channels
   EventLogCollector.exe list [options]           Display events, newest first
   EventLogCollector.exe export [options]         Export matching events
   EventLogCollector.exe clear --channel NAME --yes [--backup PATH.evtx]
-  EventLogCollector.exe --help | --version | --licenses
+  EventLogCollector.exe --help | --version
 
 Collection:
   Collect five complete event channels, recent dumps and WER reports, hardware,
@@ -146,6 +132,8 @@ Collection:
   --energy           Also sample energy efficiency for 60 s (120 s timeout), last.
                      Run with the computer idle. Cannot be combined with --no-power.
   --json             Emit JSON result (schema version 2); reports are saved as HTML
+                     Without --json, collect shows progress and exits without waiting.
+  Press Ctrl+C to cancel a collection; completed files are kept.
   Missing optional evidence and documented skips are not collection failures.
 
 Source (list/export):
@@ -183,15 +171,13 @@ Exit codes: 0 success; 2 usage; 3 access denied; 4 operation failed; 5 cancelled
 Redirected output is UTF-8. File CSV includes a BOM and escapes spreadsheet formulas.
 JSON uses UTC timestamps and includes the original event XML.
 Run elevated to access restricted logs or clear protected channels.
-The release EXE requires administrator rights. Run CLI from an elevated terminal.
-In interactive cmd.exe, use start /wait to wait for this GUI executable.
-In PowerShell, pipe stdout to Out-String when invoking interactively.
+The release EXE requires administrator rights. From a non-elevated terminal,
+Windows opens the program in a new elevated console window.
 )HELP";
     }
 
     int RunCommandLine(const std::vector<std::wstring> &args)
     {
-        AttachOutput();
         try
         {
             if (args.empty())
@@ -205,11 +191,6 @@ In PowerShell, pipe stdout to Out-String when invoking interactively.
             if (command == L"--version" && args.size() == 1)
             {
                 WriteOutput(L"EventLogCollector 1.3.0.0\n");
-                return 0;
-            }
-            if (command == L"--licenses" && args.size() == 1)
-            {
-                WriteOutput(std::wstring(fluent::thirdPartyNotices()));
                 return 0;
             }
             if (command != L"channels" && command != L"list" && command != L"export" && command != L"clear" && command != L"collect")
@@ -270,17 +251,11 @@ In PowerShell, pipe stdout to Out-String when invoking interactively.
                     throw UsageError(L"--no-power cannot be combined with --power or --energy.");
                 collection.powerReports = !has(L"--no-power");
                 collection.energyReport = has(L"--energy");
-                const auto result = CollectWindowsLogs(has(L"--output") ? options[L"--output"] : L"", {}, nullptr, collection);
-                if (has(L"--json"))
-                    WriteOutput(CollectionJson(result));
-                else
-                {
-                    for (const auto *item : CollectionEntries(result))
-                        WriteOutput(L"[" + CollectionStateName(item->state) + L"] " + item->channel + L": " +
-                                    (item->state == CollectionState::Saved ? item->path : item->message) + L"\n");
-                    WriteOutput(L"Saved " + std::to_wstring(result.saved()) + L" / " + std::to_wstring(result.total()) +
-                                L" items. Directory: " + result.directory + L"\nManifest: " + result.manifestPath + L"\n");
-                }
+                const auto output = has(L"--output") ? options[L"--output"] : L"";
+                if (!has(L"--json"))
+                    return RunConsoleCollection(output, collection, false);
+                const auto result = CollectWindowsLogs(output, {}, nullptr, collection);
+                WriteOutput(CollectionJson(result));
                 return result.success() ? 0 : result.cancelled ? 5
                                                                : 4;
             }

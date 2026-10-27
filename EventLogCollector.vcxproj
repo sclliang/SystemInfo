@@ -24,13 +24,10 @@
     <UseDebugLibraries>false</UseDebugLibraries>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>
-  <Import Project="FluentUI.props"/>
   <PropertyGroup>
     <OutDir>$(ProjectDir)build\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(ProjectDir)build\obj\Collector\$(Platform)\$(Configuration)\</IntDir>
-    <IntDir Condition="'$(UiValidation)' == 'true'">$(ProjectDir)build\obj\Collector\$(Platform)\$(Configuration)\ui\</IntDir>
     <TargetName>EventLogCollector</TargetName>
-    <TargetName Condition="'$(UiValidation)' == 'true'">EventLogCollector.UiSmoke</TargetName>
     <TargetName Condition="'$(CoreValidation)' == 'true'">EventLogCollector.CoreSmoke</TargetName>
     <TargetName Condition="'$(DiagnosticsValidation)' == 'true'">EventLogCollector.DiagnosticsSmoke</TargetName>
     <IntDir Condition="'$(CoreValidation)' == 'true'">$(ProjectDir)build\obj\Collector\$(Platform)\$(Configuration)\core\</IntDir>
@@ -58,8 +55,9 @@
     </ClCompile>
     <ResourceCompile><AdditionalIncludeDirectories>$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ResourceCompile>
     <Link>
-      <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>wevtapi.lib;wbemuuid.lib;setupapi.lib;cfgmgr32.lib;powrprof.lib;comctl32.lib;uxtheme.lib;advapi32.lib;shell32.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <SubSystem>Console</SubSystem>
+      <SubSystem Condition="'$(DiagnosticsValidation)' == 'true'">Windows</SubSystem>
+      <AdditionalDependencies>wevtapi.lib;wbemuuid.lib;setupapi.lib;cfgmgr32.lib;powrprof.lib;advapi32.lib;shell32.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <LinkTimeCodeGeneration>UseFastLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <EnableCOMDATFolding Condition="'$(Configuration)' == 'Release'">true</EnableCOMDATFolding>
@@ -70,16 +68,15 @@
     <Manifest><AdditionalManifestFiles>$(ProjectDir)src\app.manifest;%(AdditionalManifestFiles)</AdditionalManifestFiles></Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="src\App.cpp" Condition="'$(UiValidation)' != 'true' And '$(DiagnosticsValidation)' != 'true'"/>
+    <ClCompile Include="src\App.cpp" Condition="'$(DiagnosticsValidation)' != 'true'"/>
     <ClCompile Include="tests\DiagnosticsSmoke.cpp" Condition="'$(DiagnosticsValidation)' == 'true'"/>
-    <ClCompile Include="tests\UiSmoke.cpp" Condition="'$(UiValidation)' == 'true'"/>
     <ClCompile Include="src\CommandLine.cpp"/>
     <ClCompile Include="src\EventLogService.cpp"/>
     <ClCompile Include="src\Collector.cpp"/>
     <ClCompile Include="src\HtmlReport.cpp"/>
     <ClCompile Include="src\Diagnostics.cpp"/>
     <ClCompile Include="src\SystemSnapshot.cpp"/>
-    <ClCompile Include="src\CollectorWindow.cpp"/>
+    <ClCompile Include="src\ConsoleUi.cpp"/>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\CommandLine.h"/>
@@ -87,7 +84,7 @@
     <ClInclude Include="src\Collector.h"/>
     <ClInclude Include="src\HtmlReport.h"/>
     <ClInclude Include="src\Diagnostics.h"/>
-    <ClInclude Include="src\CollectorWindow.h"/>
+    <ClInclude Include="src\ConsoleUi.h"/>
     <ClInclude Include="src\resource.h"/>
   </ItemGroup>
   <ItemGroup><ResourceCompile Include="src\EventLogCollector.rc"/></ItemGroup>
