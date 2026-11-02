@@ -41,7 +41,7 @@ function Invoke-Manager([string[]]$Arguments, [int]$Expected = 0) {
 
 $version = (Get-Item -LiteralPath $Executable).VersionInfo
 Assert-True ($version.CompanyName -eq 'sixunited' -and $version.ProductName -eq 'EventLogCollector' -and
-    $version.FileVersion -eq '1.3.0.0' -and $version.ProductVersion -eq '1.3.0.0' -and
+    $version.FileVersion -eq '1.4.0.0' -and $version.ProductVersion -eq '1.4.0.0' -and
     $version.OriginalFilename -eq 'EventLogCollector.exe' -and $version.InternalName -eq 'EventLogCollector' -and
     $version.FileDescription -eq 'Windows Event Log and Diagnostic Collector' -and
     $version.LegalCopyright -eq 'Copyright (c) 2026 sixunited. Author: sclliang') 'Release VERSIONINFO fields'
@@ -49,7 +49,7 @@ Assert-True ($version.CompanyName -eq 'sixunited' -and $version.ProductName -eq 
 $help = Invoke-Manager @('--help')
 Assert-True ($help.Out.Contains('clear --channel NAME --yes') -and $help.Err.Length -eq 0) 'CLI help and clean stdout'
 $ver = Invoke-Manager @('--version')
-Assert-True ($ver.Out.Trim() -eq 'EventLogCollector 1.3.0.0') 'CLI version'
+Assert-True ($ver.Out.Trim() -eq 'EventLogCollector 1.4.0.0') 'CLI version'
 $channels = (Invoke-Manager @('channels', '--json')).Out | ConvertFrom-TestJson
 Assert-True ($channels -contains 'System' -and $channels -contains 'Application' -and $channels.Count -gt 5) 'Enumerate real local channels'
 $plain = (Invoke-Manager @('channels')).Out

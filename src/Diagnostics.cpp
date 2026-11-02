@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cwctype>
 #include <functional>
+#include <set>
 #include <tuple>
 #include <utility>
 
@@ -70,7 +71,7 @@ namespace elm
             size_t saved = 0, failed = 0, skipped = 0;
             for (const auto &file : item.files)
             {
-                if (file.state == CollectionState::Saved)
+                if (file.state == CollectionState::Saved || (file.state == CollectionState::Partial && !file.path.empty()))
                     ++saved;
                 if (file.state == CollectionState::Skipped)
                     ++skipped;
@@ -99,10 +100,26 @@ namespace elm
             fs::path source, relative;
             WIN32_FILE_ATTRIBUTE_DATA attributes{};
             bool dump = false, optIn = false;
+            bool snapshot = false;
+            unsigned priority = 0;
         };
         bool Attributes(const fs::path &path, WIN32_FILE_ATTRIBUTE_DATA &attributes)
         {
             return GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attributes) != FALSE;
+        }
+        bool ReparseAncestor(fs::path path)
+        {
+            while (!path.empty())
+            {
+                const auto attributes = GetFileAttributesW(path.c_str());
+                if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+                    return true;
+                const auto parent = path.parent_path();
+                if (parent == path)
+                    break;
+                path = parent;
+            }
+            return false;
         }
         void Scan(CollectedLog &item, const DiagnosticContext &context, const fs::path &root, const fs::path &prefix,
                   const std::function<bool(const fs::path &)> &select, std::vector<Candidate> &candidates, size_t &scanned,
@@ -110,6 +127,13 @@ namespace elm
         {
             CheckDiagnosticCancel(context);
             const auto directory = root / relative;
+            if (!context.output.empty())
+            {
+                const auto output = Lower(context.output.lexically_normal().wstring());
+                const auto source = Lower(directory.lexically_normal().wstring());
+                if (source == output || source.starts_with(output + L"\\"))
+                    return; // A configured dump folder may contain this run's output directory.
+            }
             WIN32_FILE_ATTRIBUTE_DATA attributes{};
             if (!Attributes(directory, attributes))
             {
@@ -117,7 +141,7 @@ namespace elm
                 Issue(item, directory, code, SystemError(code));
                 return;
             }
-            if (attributes.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+            if ((attributes.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) || (relative.empty() && ReparseAncestor(directory.parent_path())))
             {
                 CollectedFile file;
                 file.source = directory.wstring();
@@ -197,14 +221,78 @@ namespace elm
             const auto *cancel = static_cast<const std::atomic_bool *>(data);
             return cancel && cancel->load() ? PROGRESS_CANCEL : PROGRESS_CONTINUE;
         }
+        bool CopySnapshot(HANDLE source, const fs::path &temporary, const WIN32_FILE_ATTRIBUTE_DATA &before,
+                          const DiagnosticContext &context, bool &ownsTemporary)
+        {
+            Handle output(CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+            if (output == INVALID_HANDLE_VALUE)
+                throw Error(GetLastError(), L"创建活动日志快照");
+            ownsTemporary = true;
+            uint64_t remaining = (static_cast<uint64_t>(before.nFileSizeHigh) << 32) | before.nFileSizeLow;
+            std::vector<unsigned char> buffer(64 * 1024);
+            while (remaining)
+            {
+                CheckDiagnosticCancel(context);
+                DWORD read = 0;
+                if (!ReadFile(source, buffer.data(), static_cast<DWORD>(std::min<uint64_t>(remaining, buffer.size())), &read, nullptr))
+                    throw Error(GetLastError(), L"读取活动日志快照");
+                if (!read)
+                    throw Error(ERROR_HANDLE_EOF, L"源文件在快照完成前被截断");
+                for (DWORD offset = 0; offset < read;)
+                {
+                    DWORD written = 0;
+                    if (!WriteFile(output, buffer.data() + offset, read - offset, &written, nullptr))
+                        throw Error(GetLastError(), L"写入活动日志快照");
+                    if (!written)
+                        throw Error(ERROR_WRITE_FAULT, L"写入活动日志快照");
+                    offset += written;
+                }
+                remaining -= read;
+            }
+            if (!FlushFileBuffers(output))
+                throw Error(GetLastError(), L"保存活动日志快照");
+            BY_HANDLE_FILE_INFORMATION after{};
+            if (!GetFileInformationByHandle(source, &after))
+                throw Error(GetLastError(), L"复查活动日志快照");
+            return after.nFileSizeHigh != before.nFileSizeHigh || after.nFileSizeLow != before.nFileSizeLow ||
+                FileTimeValue(after.ftLastWriteTime) != FileTimeValue(before.ftLastWriteTime);
+        }
         void CopyCandidates(CollectedLog &item, DiagnosticContext &context, std::vector<Candidate> &candidates, const fs::path &folder)
         {
             std::stable_sort(candidates.begin(), candidates.end(), [](const auto &a, const auto &b)
-                             { return FileTimeValue(a.attributes.ftLastWriteTime) > FileTimeValue(b.attributes.ftLastWriteTime); });
+                             { return a.priority != b.priority ? a.priority < b.priority : FileTimeValue(a.attributes.ftLastWriteTime) > FileTimeValue(b.attributes.ftLastWriteTime); });
             size_t copied = 0;
-            for (const auto &candidate : candidates)
+            std::set<std::wstring> seen;
+            for (auto candidate : candidates)
             {
                 CheckDiagnosticCancel(context);
+                if (!seen.insert(Lower(candidate.source.lexically_normal().wstring())).second)
+                    continue;
+                Handle input(candidate.snapshot ? CreateFileW(candidate.source.c_str(), GENERIC_READ,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                    FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr) : INVALID_HANDLE_VALUE);
+                if (candidate.snapshot)
+                {
+                    BY_HANDLE_FILE_INFORMATION info{};
+                    if (input == INVALID_HANDLE_VALUE || !GetFileInformationByHandle(input, &info))
+                    {
+                        const auto error = GetLastError();
+                        Issue(item, candidate.source, error, SystemError(error));
+                        continue;
+                    }
+                    candidate.attributes.dwFileAttributes = info.dwFileAttributes;
+                    candidate.attributes.ftLastWriteTime = info.ftLastWriteTime;
+                    candidate.attributes.nFileSizeHigh = info.nFileSizeHigh;
+                    candidate.attributes.nFileSizeLow = info.nFileSizeLow;
+                }
+                else if (!Attributes(candidate.source, candidate.attributes))
+                {
+                    const auto error = GetLastError();
+                    Issue(item, candidate.source, error, SystemError(error));
+                    continue;
+                }
+                if (ReparseAncestor(candidate.source.parent_path()))
+                    candidate.attributes.dwFileAttributes |= FILE_ATTRIBUTE_REPARSE_POINT;
                 CollectedFile file;
                 file.source = candidate.source.wstring();
                 file.bytes = (static_cast<uint64_t>(candidate.attributes.nFileSizeHigh) << 32) | candidate.attributes.nFileSizeLow;
@@ -238,31 +326,46 @@ namespace elm
                 {
                     fs::create_directories(destination.parent_path());
                     CheckDiagnosticCancel(context);
-                    BOOL abort = FALSE;
-                    if (!CopyFileExW(candidate.source.c_str(), temporary.c_str(), CopyProgress,
-                                     const_cast<std::atomic_bool *>(context.cancel), &abort, COPY_FILE_FAIL_IF_EXISTS))
+                    if (candidate.snapshot)
                     {
-                        const auto code = GetLastError();
-                        // CopyFileEx removes its incomplete destination after PROGRESS_CANCEL.
-                        if (code != ERROR_FILE_EXISTS && code != ERROR_ALREADY_EXISTS)
-                            DeleteFileW(temporary.c_str());
-                        if (code == ERROR_REQUEST_ABORTED && context.cancel && context.cancel->load())
-                            throw Error(ERROR_CANCELLED, L"复制已取消");
-                        throw Error(code, L"复制：" + candidate.source.wstring());
+                        if (CopySnapshot(input, temporary, candidate.attributes, context, ownsTemporary))
+                        {
+                            file.state = CollectionState::Partial;
+                            file.error = ERROR_MORE_DATA;
+                            file.message = L"已保留打开源文件时大小的快照；复制期间源仍在变化，快照可能不完整。";
+                        }
+                        else
+                            file.message = L"按打开源文件时的大小保存只读快照。";
                     }
-                    ownsTemporary = true;
+                    else
+                    {
+                        BOOL abort = FALSE;
+                        if (!CopyFileExW(candidate.source.c_str(), temporary.c_str(), CopyProgress,
+                                     const_cast<std::atomic_bool *>(context.cancel), &abort, COPY_FILE_FAIL_IF_EXISTS))
+                        {
+                            const auto code = GetLastError();
+                            // CopyFileEx removes its incomplete destination after PROGRESS_CANCEL.
+                            if (code != ERROR_FILE_EXISTS && code != ERROR_ALREADY_EXISTS)
+                                DeleteFileW(temporary.c_str());
+                            if (code == ERROR_REQUEST_ABORTED && context.cancel && context.cancel->load())
+                                throw Error(ERROR_CANCELLED, L"复制已取消");
+                            throw Error(code, L"复制：" + candidate.source.wstring());
+                        }
+                        ownsTemporary = true;
+                        WIN32_FILE_ATTRIBUTE_DATA after{};
+                        if (!Attributes(candidate.source, after))
+                            throw Error(GetLastError(), L"复查源文件");
+                        if (after.nFileSizeHigh != candidate.attributes.nFileSizeHigh || after.nFileSizeLow != candidate.attributes.nFileSizeLow ||
+                            FileTimeValue(after.ftLastWriteTime) != FileTimeValue(candidate.attributes.ftLastWriteTime))
+                            throw Error(ERROR_FILE_INVALID, L"复制期间源文件发生变化，请重试");
+                    }
                     CheckDiagnosticCancel(context);
-                    WIN32_FILE_ATTRIBUTE_DATA after{};
-                    if (!Attributes(candidate.source, after))
-                        throw Error(GetLastError(), L"复查源文件");
-                    if (after.nFileSizeHigh != candidate.attributes.nFileSizeHigh || after.nFileSizeLow != candidate.attributes.nFileSizeLow ||
-                        FileTimeValue(after.ftLastWriteTime) != FileTimeValue(candidate.attributes.ftLastWriteTime))
-                        throw Error(ERROR_FILE_INVALID, L"复制期间源文件发生变化，请重试");
                     if (!MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH))
                         throw Error(GetLastError(), L"提交采集文件");
                     ownsTemporary = false;
                     file.path = destination.wstring();
-                    file.state = CollectionState::Saved;
+                    if (file.state != CollectionState::Partial)
+                        file.state = CollectionState::Saved;
                     ++copied;
                     if (candidate.dump)
                         context.dumpBytesCopied += file.bytes;
@@ -309,6 +412,8 @@ namespace elm
                 Issue(item, source, ERROR_DIRECTORY, L"源路径不是文件。");
                 return;
             }
+            if (ReparseAncestor(source.parent_path()))
+                candidate.attributes.dwFileAttributes |= FILE_ATTRIBUTE_REPARSE_POINT;
             candidates.push_back(std::move(candidate));
         }
         fs::path KnownFolder(REFKNOWNFOLDERID id)
@@ -333,6 +438,13 @@ namespace elm
                 return L"hardware_error";
             if (Lower(event.provider) == L"volmgr")
                 return L"dump_or_volume";
+            if (event.provider == L"Microsoft-Windows-Kernel-Power" && (event.eventId == 42 || event.eventId == 506))
+                return L"sleep";
+            if ((event.provider == L"Microsoft-Windows-Kernel-Power" && (event.eventId == 107 || event.eventId == 507)) ||
+                (event.provider == L"Microsoft-Windows-Power-Troubleshooter" && event.eventId == 1))
+                return L"wake";
+            if (event.provider == L"Microsoft-Windows-Kernel-General" && (event.eventId == 12 || event.eventId == 13))
+                return event.eventId == 12 ? L"startup" : L"shutdown";
             return L"context";
         }
     }
@@ -413,7 +525,7 @@ namespace elm
                                                   CollectionStateName(state), item.message));
         item.bytes = fs::file_size(item.path);
         for (const auto &file : item.files)
-            if (file.state == CollectionState::Saved)
+            if (file.state == CollectionState::Saved || (file.state == CollectionState::Partial && !file.path.empty()))
                 item.bytes += file.bytes;
         if (item.state == CollectionState::Running || item.state == CollectionState::Waiting)
             item.state = CollectionState::Saved;
@@ -431,6 +543,16 @@ namespace elm
         context.windows = windows;
         context.programData = KnownFolder(FOLDERID_ProgramData);
         context.localAppData = KnownFolder(FOLDERID_LocalAppData);
+        context.currentUserProfile = KnownFolder(FOLDERID_Profile);
+        if (context.localAppData.empty() || context.currentUserProfile.empty())
+        {
+            CollectedFile issue;
+            issue.source = L"CurrentUser: Profile / LocalAppData";
+            issue.state = CollectionState::Failed;
+            issue.error = ERROR_NOT_READY;
+            issue.message = L"无法解析运行账户的用户配置文件或 LocalAppData 位置。";
+            context.userProfileIssues.push_back(std::move(issue));
+        }
         FILETIME now{};
         GetSystemTimeAsFileTime(&now);
         context.now = FileTimeValue(now);
@@ -477,10 +599,38 @@ namespace elm
         CopyCandidates(item, context, candidates, folder);
         FinishIndex(item, context);
     }
+    void CollectUserDumps(CollectedLog &item, DiagnosticContext &context)
+    {
+        const auto folder = context.output / L"UserDumps";
+        item.path = (folder / L"index.html").wstring();
+        if (context.resolveDumpPaths && !context.userProfilesResolved)
+            DiscoverDiagnosticUsers(context);
+        item.files.insert(item.files.end(), context.userProfileIssues.begin(), context.userProfileIssues.end());
+        const auto roots = DiagnosticUserDumpFolders(item, context);
+        std::vector<Candidate> candidates;
+        size_t scanned = 0;
+        std::wstring locations = L",\"locations\":[";
+        for (size_t index = 0; index < roots.size(); ++index)
+        {
+            const auto &root = roots[index];
+            if (index)
+                locations += L",";
+            locations += L"{\"source\":" + JsonQuote(root.source) + L",\"directory\":" + JsonQuote(root.directory.wstring()) + L"}";
+            if (scanned > context.maxScanEntries)
+                continue;
+            Scan(item, context, root.directory, root.prefix, [](const fs::path &path)
+                 { const auto extension = Lower(path.extension().wstring()); return extension == L".dmp" || extension == L".mdmp" || extension == L".hdmp"; }, candidates, scanned);
+        }
+        CopyCandidates(item, context, candidates, folder);
+        FinishIndex(item, context, locations + L"],\"note\":\"应用转储与 WER 报告队列独立；读取默认目录及已有的全局/按程序 LocalDumps 配置，按账户展开常见路径变量。\"");
+    }
     void CollectWerReports(CollectedLog &item, DiagnosticContext &context)
     {
         const auto folder = context.output / L"WerReports";
         item.path = (folder / L"index.html").wstring();
+        if (context.resolveDumpPaths && !context.userProfilesResolved)
+            DiscoverDiagnosticUsers(context);
+        item.files.insert(item.files.end(), context.userProfileIssues.begin(), context.userProfileIssues.end());
         std::vector<Candidate> candidates;
         size_t scanned = 0;
         const auto select = [](const fs::path &path)
@@ -488,7 +638,10 @@ namespace elm
             const auto ext = Lower(path.extension().wstring());
             return ext == L".wer" || ext == L".xml" || ext == L".dmp" || ext == L".mdmp" || ext == L".hdmp";
         };
-        for (const auto &[root, prefix] : std::vector<std::pair<fs::path, fs::path>>{{context.programData, L"Machine"}, {context.localAppData, L"CurrentUser"}})
+        std::vector<std::pair<fs::path, fs::path>> roots{{context.programData, L"Machine"}};
+        for (const auto &user : DiagnosticUsers(context))
+            roots.emplace_back(user.localAppData, user.id == L"CurrentUser" ? fs::path(user.id) : fs::path(L"Users") / user.id);
+        for (const auto &[root, prefix] : roots)
         {
             if (root.empty())
             {
@@ -503,7 +656,50 @@ namespace elm
             }
         }
         CopyCandidates(item, context, candidates, folder);
-        FinishIndex(item, context);
+        FinishIndex(item, context, L",\"note\":\"覆盖机器、运行账户和 ProfileList 中可访问的用户配置文件；未加载用户配置单元时使用标准 AppData\\\\Local 路径。\"");
+    }
+    void CollectServicingLogs(CollectedLog &item, const DiagnosticContext &context)
+    {
+        const auto folder = context.output / L"ServicingLogs";
+        item.path = (folder / L"index.html").wstring();
+        std::vector<Candidate> candidates;
+        size_t scanned = 0;
+        auto scan = [&](const fs::path &root, const fs::path &prefix, const auto &select, unsigned priority = 0)
+        {
+            if (scanned > context.maxScanEntries)
+                return;
+            const auto first = candidates.size();
+            Scan(item, context, root, prefix, select, candidates, scanned);
+            for (size_t i = first; i < candidates.size(); ++i)
+            {
+                candidates[i].priority = priority;
+                candidates[i].snapshot = true;
+            }
+        };
+        scan(context.windows / L"Logs" / L"CBS", L"CBS", [](const fs::path &path)
+             { const auto name = Lower(path.filename().wstring()); const auto ext = Lower(path.extension().wstring());
+               return name == L"cbs.log" || (name.starts_with(L"cbspersist") && (ext == L".log" || ext == L".cab")); });
+        scan(context.windows / L"Logs" / L"DISM", L"DISM", [](const fs::path &path)
+             { const auto name = Lower(path.filename().wstring()); return name == L"dism.log" || name == L"dism.log.bak"; });
+        const auto setup = [](const fs::path &path)
+             { const auto name = Lower(path.filename().wstring()); return name == L"setupact.log" || name == L"setuperr.log" || name == L"setupdiagresults.xml"; };
+        scan(context.windows / L"Panther", L"Panther", setup);
+        const auto upgrade = context.windows.parent_path() / L"$WINDOWS.~BT" / L"Sources";
+        scan(upgrade / L"Panther", L"UpgradePanther", setup);
+        scan(upgrade / L"Rollback", L"Rollback", setup);
+        scan(context.windows / L"Logs" / L"MoSetup", L"MoSetup", [](const fs::path &path)
+             { return Lower(path.filename().wstring()) == L"bluebox.log"; });
+        const auto etl = [](const fs::path &path) { return Lower(path.extension().wstring()) == L".etl"; };
+        scan(context.windows / L"Logs" / L"WindowsUpdate", L"WindowsUpdate", etl, 1);
+        if (!context.programData.empty())
+            scan(context.programData / L"USOShared" / L"Logs", L"USO", etl, 1);
+        else
+            Issue(item, L"ProgramData/USOShared/Logs", ERROR_NOT_READY, L"无法解析 ProgramData 位置。");
+        auto budget = context;
+        budget.auxiliaryBytesCopied = 0;
+        budget.maxAuxiliaryTotalBytes = context.maxServicingTotalBytes;
+        CopyCandidates(item, budget, candidates, folder);
+        FinishIndex(item, budget, L",\"note\":\"近期 CBS、DISM、安装/升级回滚文本及 Windows Update/USO 原始 ETL；文本优先，使用独立的复制预算。ETL 保留供离线分析。\"");
     }
     void CollectDriverInstallation(CollectedLog &item, DiagnosticContext &context)
     {
@@ -521,6 +717,62 @@ namespace elm
         context.auxiliaryBytesCopied = historyContext.auxiliaryBytesCopied;
         FinishIndex(item, context);
     }
+    void CollectEventResources(CollectedLog &item, const DiagnosticContext &context, const std::wstring &path)
+    {
+        CheckDiagnosticCancel(context);
+        const fs::path log(path);
+        try
+        {
+            ArchiveEventResources(path);
+            const auto directory = log.parent_path() / L"LocaleMetaData";
+            WIN32_FIND_DATAW data{};
+            const auto pattern = directory / (log.stem().wstring() + L"_*.MTA");
+            HANDLE search = FindFirstFileW(pattern.c_str(), &data);
+            if (search == INVALID_HANDLE_VALUE)
+            {
+                const auto error = GetLastError();
+                if (!Missing(error))
+                    throw Error(error, L"枚举 EVTX 消息资源");
+                CollectedFile file;
+                file.source = path + L" [message resources]";
+                file.state = CollectionState::Skipped;
+                file.message = L"归档调用完成，未产生附属消息资源（例如空日志）。";
+                item.files.push_back(std::move(file));
+                return;
+            }
+            struct CloseSearch { HANDLE value; ~CloseSearch() { FindClose(value); } } closer{search};
+            do
+            {
+                if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                    continue;
+                CollectedFile file;
+                file.source = path + L" [message resources]";
+                file.path = (directory / data.cFileName).wstring();
+                file.state = CollectionState::Saved;
+                file.bytes = (static_cast<uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
+                file.modifiedUtc = DiagnosticUtc(FileTimeValue(data.ftLastWriteTime));
+                file.message = L"查看导出的 EVTX 时，请保留同级 LocaleMetaData 目录。";
+                item.files.push_back(std::move(file));
+            } while (FindNextFileW(search, &data));
+            const auto error = GetLastError();
+            if (error != ERROR_NO_MORE_FILES)
+                throw Error(error, L"枚举 EVTX 消息资源");
+        }
+        catch (const Error &error)
+        {
+            if (error.code == ERROR_CANCELLED)
+                throw;
+            CollectedFile file;
+            file.source = path + L" [message resources]";
+            file.state = CollectionState::Failed;
+            file.error = error.code;
+            file.message = error.text;
+            item.files.push_back(std::move(file));
+            item.state = CollectionState::Partial;
+            item.error = error.code;
+            item.message = L"原始 EVTX 已保存，部分消息资源归档失败；详情见关联文件。";
+        }
+    }
     void CollectDiagnosticEvents(CollectedLog &item, const DiagnosticContext &context)
     {
         item.path = (context.output / L"DiagnosticEvents" / L"index.html").wstring();
@@ -528,7 +780,20 @@ namespace elm
                  L"Microsoft-Windows-Kernel-PnP/Configuration", L"Microsoft-Windows-DriverFrameworks-UserMode/Operational",
                  L"Microsoft-Windows-DeviceSetupManager/Admin", L"Microsoft-Windows-DeviceSetupManager/Operational",
                  L"Microsoft-Windows-CodeIntegrity/Operational", L"Microsoft-Windows-WindowsUpdateClient/Operational",
-                 L"Microsoft-Windows-Diagnostics-Performance/Operational", L"Microsoft-Windows-Kernel-Boot/Operational"})
+                  L"Microsoft-Windows-Diagnostics-Performance/Operational", L"Microsoft-Windows-Kernel-Boot/Operational",
+                  L"Microsoft-Windows-Storage-Storport/Operational", L"Microsoft-Windows-Storage-Storport/Health",
+                  L"Microsoft-Windows-Storage-ClassPnP/Operational", L"Microsoft-Windows-Storage-NvmeDisk/Operational",
+                  L"Microsoft-Windows-Ntfs/Operational", L"Microsoft-Windows-DiskDiagnostic/Operational",
+                  L"Microsoft-Windows-Kernel-LiveDump/Operational", L"Microsoft-Windows-Kernel-Dump/Operational",
+                  L"Microsoft-Windows-WER-Diag/Operational", L"Microsoft-Windows-WerKernel/Operational",
+                  L"Microsoft-Windows-Resource-Exhaustion-Detector/Operational", L"Microsoft-Windows-Crashdump/Operational",
+                  L"Microsoft-Windows-Kernel-WHEA/Errors", L"Microsoft-Windows-Kernel-WHEA/Operational",
+                  L"Microsoft-Windows-Kernel-Power/Thermal-Operational",
+                  L"Microsoft-Windows-DxgKrnl-Admin", L"Microsoft-Windows-DxgKrnl-Operational",
+                  L"Microsoft-Windows-WLAN-AutoConfig/Operational", L"Microsoft-Windows-Wired-AutoConfig/Operational",
+                  L"Microsoft-Windows-NetworkProfile/Operational", L"Microsoft-Windows-NDIS/Operational",
+                  L"Microsoft-Windows-Dhcp-Client/Admin", L"Microsoft-Windows-Dhcp-Client/Operational",
+                  L"Microsoft-Windows-DNS-Client/Operational"})
         {
             CheckDiagnosticCancel(context);
             CollectedFile file;
@@ -558,7 +823,8 @@ namespace elm
                     Query query;
                     query.source = channel;
                     query.limit = 0;
-                    query.hours = context.options.days * 24ULL;
+                    query.xpath = L"*[System[TimeCreated[@SystemTime >= '" + DiagnosticUtc(Cutoff(context)) +
+                                  L"' and @SystemTime <= '" + DiagnosticUtc(context.now) + L"']]]";
                     Export(query, destination.wstring(), Format::Evtx, false, context.cancel);
                     file.state = CollectionState::Saved;
                     file.path = destination.wstring();
@@ -574,8 +840,34 @@ namespace elm
                 file.state = Missing(error.code) ? CollectionState::NotFound : CollectionState::Failed;
             }
             item.files.push_back(std::move(file));
+            if (item.files.back().state == CollectionState::Saved)
+            {
+                const auto path = item.files.back().path;
+                CollectEventResources(item, context, path);
+            }
         }
         FinishIndex(item, context);
+    }
+    std::wstring DiagnosticTimelineXPath(const DiagnosticContext &context)
+    {
+        const auto window = L"TimeCreated[@SystemTime >= '" + DiagnosticUtc(Cutoff(context)) +
+                            L"' and @SystemTime <= '" + DiagnosticUtc(context.now) + L"'] and ";
+        auto select = [&](const std::wstring &predicate)
+        {
+            std::wstring xpath = L"*[System[" + window + predicate + L"]]", escaped;
+            for (wchar_t ch : xpath)
+                escaped += ch == L'<' ? std::wstring(L"&lt;") : std::wstring(1, ch);
+            return L"<Select>" + escaped + L"</Select>";
+        };
+        // Separate selectors keep each XPath within Windows Event Log's expression limit.
+        return L"<QueryList><Query Id='0'>" +
+            select(L"((Level >= 1 and Level <= 3) or Provider[@Name='Microsoft-Windows-WHEA-Logger'] or "
+                   L"Provider[@Name='Microsoft-Windows-WER-SystemErrorReporting'] or Provider[@Name='Windows Error Reporting'] or "
+                   L"Provider[@Name='User32'] or (Provider[@Name='EventLog'] and (EventID=6005 or EventID=6006 or EventID=6008)))") +
+            select(L"((Provider[@Name='Microsoft-Windows-Kernel-Power'] and (EventID=42 or EventID=107 or EventID=506 or EventID=507)) or "
+                   L"(Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and EventID=1) or "
+                   L"(Provider[@Name='Microsoft-Windows-Kernel-General'] and (EventID=12 or EventID=13)))") +
+            L"</Query></QueryList>";
     }
     void CollectTimeline(CollectedLog &item, const DiagnosticContext &context, const CollectionResult &result)
     {
@@ -586,7 +878,7 @@ namespace elm
         for (const auto &log : result.logs)
             if (log.channel == L"System" || log.channel == L"Application")
             {
-                if (log.state == CollectionState::Saved)
+                if (log.state == CollectionState::Saved || (log.state == CollectionState::Partial && log.bytes))
                     sources.emplace_back(log.channel, log.path);
                 else
                 {
@@ -601,7 +893,7 @@ namespace elm
         for (const auto &diagnostic : result.diagnostics)
             if (diagnostic.channel == L"DiagnosticEvents")
                 for (const auto &file : diagnostic.files)
-                    if (file.state == CollectionState::Saved)
+                    if (file.state == CollectionState::Saved && Lower(fs::path(file.path).extension().wstring()) == L".evtx")
                         sources.emplace_back(file.source, file.path);
         const auto start = DiagnosticUtc(Cutoff(context)), end = DiagnosticUtc(context.now);
         for (const auto &[channel, path] : sources)
@@ -617,10 +909,7 @@ namespace elm
                 query.source = path;
                 query.file = true;
                 query.limit = context.maxEventsPerChannel + 1;
-                query.xpath = L"*[System[TimeCreated[@SystemTime >= '" + start + L"' and @SystemTime <= '" + end +
-                              L"'] and ((Level >= 1 and Level <= 3) or Provider[@Name='Microsoft-Windows-WHEA-Logger'] or "
-                              L"Provider[@Name='Microsoft-Windows-WER-SystemErrorReporting'] or Provider[@Name='Windows Error Reporting'] or "
-                              L"Provider[@Name='User32'] or (Provider[@Name='EventLog'] and (EventID=6005 or EventID=6006 or EventID=6008)))]]";
+                query.xpath = DiagnosticTimelineXPath(context);
                 size_t count = 0;
                 Read(query, [&](Event &&event)
                      {
@@ -708,6 +997,10 @@ namespace elm
             {L"sleep-states", L"/a", false, nullptr, timeout},
             {L"last-wake", L"/lastwake", false, nullptr, timeout},
             {L"power-requests", L"/requests", false, nullptr, timeout},
+            {L"active-scheme", L"/getactivescheme", false, nullptr, timeout},
+            {L"power-settings", L"/query", false, nullptr, timeout},
+            {L"wake-timers", L"/waketimers", false, nullptr, timeout},
+            {L"wake-armed", L"/devicequery wake_armed", false, nullptr, timeout},
             {L"system-power", L"/systempowerreport /duration " + std::to_wstring(transitionDays), true, nullptr, timeout},
             {L"battery", L"/batteryreport /duration " + std::to_wstring(context.options.days), true,
                 noBattery ? L"未检测到系统电池，跳过电池报告。" : nullptr, timeout},
@@ -857,6 +1150,8 @@ namespace elm
             CollectDumpFiles(item, context, false);
         else if (item.channel == L"LiveKernelReports")
             CollectDumpFiles(item, context, true);
+        else if (item.channel == L"UserDumps")
+            CollectUserDumps(item, context);
         else if (item.channel == L"WerReports")
             CollectWerReports(item, context);
         else if (item.channel == L"SystemInfo")
@@ -869,6 +1164,12 @@ namespace elm
             CollectDumpConfiguration(item, context);
         else if (item.channel == L"DriverInstallation")
             CollectDriverInstallation(item, context);
+        else if (item.channel == L"ServicingLogs")
+            CollectServicingLogs(item, context);
+        else if (item.channel == L"Reliability")
+            CollectReliability(item, context);
+        else if (item.channel == L"StorageHealth")
+            CollectStorageHealth(item, context);
         else if (item.channel == L"DiagnosticEvents")
             CollectDiagnosticEvents(item, context);
         else if (item.channel == L"Timeline")

@@ -102,7 +102,7 @@ namespace elm
 
     std::wstring CommandLineHelp()
     {
-        return LR"HELP(EventLogCollector 1.3.0.0
+        return LR"HELP(EventLogCollector 1.4.0.0
 Windows Event Log and Diagnostic Collector
 
 Usage:
@@ -115,8 +115,9 @@ Usage:
   EventLogCollector.exe --help | --version
 
 Collection:
-  Collect five complete event channels, recent dumps and WER reports, hardware,
-  devices, drivers, dump settings, installation logs, diagnostic channels, a timeline
+  Collect five complete event channels with offline message resources, recent system
+  and application dumps, multi-user WER reports, hardware, devices, drivers, dump settings,
+  installation/servicing/upgrade logs, reliability history, storage health, diagnostic channels, a timeline
   and applicable powercfg HTML reports (system power, battery, Modern Standby).
   Each run creates a NEW Collection_timestamp directory under LOG next to the EXE.
   --output DIR       Override the parent directory (created if needed)
@@ -190,7 +191,7 @@ Windows opens the program in a new elevated console window.
             }
             if (command == L"--version" && args.size() == 1)
             {
-                WriteOutput(L"EventLogCollector 1.3.0.0\n");
+                WriteOutput(L"EventLogCollector 1.4.0.0\n");
                 return 0;
             }
             if (command != L"channels" && command != L"list" && command != L"export" && command != L"clear" && command != L"collect")

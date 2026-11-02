@@ -52,9 +52,11 @@ main{margin-left:230px;padding:34px 42px 48px;max-width:1690px}.topline{display:
     const states = {saved:"已保存",failed:"失败",partial:"部分完成",not_found:"未找到",skipped:"已跳过",cancelled:"已取消",waiting:"待采集",running:"采集中"};
     const levels = {0:"未指定",1:"严重",2:"错误",3:"警告",4:"信息",5:"详细"};
     const captions = {
+      Win32_ReliabilityRecords:"可靠性历史",MSFT_PhysicalDisk:"物理磁盘健康状态",MSFT_StorageReliabilityCounter:"磁盘可靠性计数器",
       Win32_OperatingSystem:"操作系统",Win32_ComputerSystem:"计算机",Win32_BIOS:"BIOS",Win32_BaseBoard:"主板",Win32_Processor:"处理器",Win32_PhysicalMemory:"内存",Win32_VideoController:"显卡",Win32_DiskDrive:"物理磁盘",Win32_LogicalDisk:"分区与空间",Win32_QuickFixEngineering:"系统补丁",Win32_PnPSignedDriver:"设备驱动与签名",Win32_SystemDriver:"系统驱动服务",Win32_OSRecoveryConfiguration:"系统故障恢复",Win32_PageFileSetting:"分页文件配置",Win32_PageFileUsage:"分页文件使用情况"
     };
     const labels = {
+      locations:"转储目录及配置来源",TimeGenerated:"事件时间（DMTF）",SourceName:"事件来源",ProductName:"产品名称",EventIdentifier:"事件 ID",Message:"事件说明",RecordNumber:"记录编号",Logfile:"日志名称",ComputerName:"计算机",User:"用户",InsertionStrings:"事件参数",DeviceId:"磁盘 ID",FriendlyName:"磁盘名称",SerialNumber:"序列号",FirmwareVersion:"固件版本",MediaType:"介质类型",BusType:"总线类型",HealthStatus:"健康状态",OperationalStatus:"运行状态",Temperature:"当前温度（℃）",TemperatureMax:"正常工作温度上限（℃）",Wear:"已消耗寿命（%）",PowerOnHours:"累计通电小时",ReadErrorsTotal:"读取错误总数",ReadErrorsCorrected:"已纠正读取错误",ReadErrorsUncorrected:"未纠正读取错误",WriteErrorsTotal:"写入错误总数",WriteErrorsCorrected:"已纠正写入错误",WriteErrorsUncorrected:"未纠正写入错误",ReadLatencyMax:"最大读取延迟（毫秒）",WriteLatencyMax:"最大写入延迟（毫秒）",FlushLatencyMax:"最大刷新延迟（毫秒）",StartStopCycleCount:"启停次数",LoadUnloadCycleCount:"加载/卸载次数",
       source:"来源",path:"文件路径",status:"采集状态",bytes:"文件大小",modifiedUtc:"修改时间（UTC）",errorCode:"错误代码",message:"说明",error:"错误说明",caption:"采集项目",channel:"事件通道",files:"关联文件",class:"设备类别",name:"名称",description:"描述",manufacturer:"制造商",instanceId:"设备实例 ID",hardwareIds:"硬件 ID",service:"驱动服务",statusAvailable:"设备状态可用",configRet:"状态读取返回码",devNodeStatus:"设备节点状态",problemCode:"问题代码",driver:"关联驱动",DriverVersion:"驱动版本",DriverDate:"驱动包日期",ProviderName:"驱动提供商",InfPath:"INF 文件",InfSection:"INF 节",MatchingDeviceId:"匹配设备 ID",timeUtc:"记录时间（UTC）",timeLocal:"记录时间（本地）",provider:"事件来源",recordId:"记录编号",eventId:"事件 ID",level:"级别",category:"事件分类",xml:"原始事件 XML",key:"注册表路径",registryType:"注册表类型",value:"配置值",windowsVersion:"Windows 版本",powerStatus:"当前电源状态",windowsVolume:"Windows 所在卷",collectedAtUtc:"采集时间（UTC）",windowStartUtc:"范围起点（UTC）",windowEndUtc:"范围终点（UTC）",requestedDays:"请求历史天数",transitionReportDays:"电源转换报告天数",energyDurationSeconds:"现场能效采样（秒）",maxDumpFileBytes:"单个转储复制上限",maxDumpTotalBytes:"转储复制总上限",maxAuxiliaryTotalBytes:"辅助文件复制总上限",maxFiles:"单类文件复制上限",available:"数据可用",acLineStatus:"交流电状态",batteryFlag:"电池状态标志",batteryLifePercent:"电池剩余电量",freeBytes:"剩余空间",ProductName:"产品名称",DisplayVersion:"功能版本",CurrentBuildNumber:"内部版本号",UBR:"更新修订号",BuildLabEx:"完整构建标识",InstallationType:"安装类型",
       Name:"名称",Caption:"名称",Description:"描述",Version:"版本",BuildNumber:"内部版本号",OSArchitecture:"系统架构",LastBootUpTime:"上次启动时间",InstallDate:"安装日期",TotalVisibleMemorySize:"可见内存（KiB）",FreePhysicalMemory:"空闲内存（KiB）",Manufacturer:"制造商",Model:"型号",SystemType:"系统类型",TotalPhysicalMemory:"物理内存",HypervisorPresent:"检测到虚拟机监控程序",SMBIOSBIOSVersion:"BIOS 版本",ReleaseDate:"发布日期",Product:"产品型号",NumberOfCores:"物理核心",NumberOfLogicalProcessors:"逻辑处理器",MaxClockSpeed:"最高频率（MHz）",DeviceLocator:"内存插槽",PartNumber:"部件编号",Capacity:"容量",Speed:"标称速度（MHz）",ConfiguredClockSpeed:"配置速度（MHz）",PNPDeviceID:"即插即用设备 ID",Status:"系统报告的状态",ConfigManagerErrorCode:"设备问题代码",FirmwareRevision:"固件版本",InterfaceType:"接口类型",Size:"容量",DeviceID:"设备 ID",DriveType:"驱动器类型",FileSystem:"文件系统",FreeSpace:"可用空间",HotFixID:"补丁编号",InstalledOn:"安装日期",DeviceName:"设备名称",DeviceClass:"设备类别",DriverProviderName:"驱动提供商",InfName:"INF 文件",IsSigned:"系统签名标记",Signer:"签名者",DisplayName:"显示名称",PathName:"驱动路径",State:"运行状态",Started:"已经启动",StartMode:"启动方式",ServiceType:"服务类型",DebugInfoType:"转储类型",DebugFilePath:"转储文件路径",MiniDumpDirectory:"小型转储目录",AutoReboot:"自动重新启动",WriteToSystemLog:"写入系统日志",OverwriteExistingDebugFile:"覆盖现有转储",InitialSize:"初始大小（MiB）",MaximumSize:"最大大小（MiB）",AllocatedBaseSize:"已分配大小（MiB）",CurrentUsage:"当前使用（MiB）",PeakUsage:"峰值使用（MiB）",TempPageFile:"临时分页文件",AutomaticManagedPagefile:"自动管理分页文件",CrashDumpEnabled:"转储类型",DumpFile:"系统转储路径",MinidumpDir:"小型转储目录",DedicatedDumpFile:"专用转储文件",DumpFileSize:"转储文件大小",LogEvent:"写入事件日志",Overwrite:"允许覆盖",AlwaysKeepMemoryDump:"始终保留内存转储",FilterPages:"页面筛选",PagingFiles:"分页文件设置",ExistingPageFiles:"现有分页文件"
     };
@@ -77,6 +79,8 @@ main{margin-left:230px;padding:34px 42px 48px;max-width:1690px}.topline{display:
       if (key === "problemCode" || key === "ConfigManagerErrorCode") return Number(value) === 0 ? "0 · 无问题代码" : String(value);
       if (key === "acLineStatus") return ({0:"电池供电",1:"已连接交流电",255:"未知"})[value] || String(value);
       if (key === "batteryLifePercent") return Number(value) === 255 ? "未知 / 无电池" : value + "%";
+      if (key === "HealthStatus") return ({0:"正常",1:"警告",2:"不健康",5:"未知"})[value] || String(value);
+      if (key === "category") return ({sleep:"进入睡眠",wake:"恢复/唤醒",startup:"系统启动",shutdown:"系统关闭",unexpected_restart:"异常重启",unexpected_shutdown:"异常关机",bugcheck:"蓝屏",hardware_error:"硬件错误",dump_or_volume:"转储/卷",context:"上下文"})[value] || String(value);
       if (Array.isArray(value)) return value.map(v => typeof v === "object" && v ? JSON.stringify(v) : String(v)).join("\n") || "无记录";
       return String(value);
     }
@@ -94,7 +98,7 @@ main{margin-left:230px;padding:34px 42px 48px;max-width:1690px}.topline{display:
       return settings.base + parts.map(encodeURIComponent).join("/");
     }
     function fileLink(row, overview) {
-      const allowed = overview ? Number(row.bytes) > 0 : row.status === "saved" || (/\.txt$/i.test(row.path || "") && Number(row.bytes) > 0);
+      const allowed = overview ? Number(row.bytes) > 0 : row.status === "saved" || ((row.status === "partial" || /\.txt$/i.test(row.path || "")) && Number(row.bytes) > 0);
       const href = allowed && localHref(row.path);
       if (!href) return null;
       const link = node("a",/\.html$/i.test(row.path) ? "查看报告 ↗" : "打开文件 ↗","file-link");
@@ -207,12 +211,16 @@ main{margin-left:230px;padding:34px 42px 48px;max-width:1690px}.topline{display:
       tables.push(() => draw(true)); draw(true);
     }
     const genericColumns = rows => {
+      const sample = rows[0] || {};
+      if (Object.hasOwn(sample,"TimeGenerated")) return ["TimeGenerated","SourceName","ProductName","EventIdentifier","Message"];
+      if (Object.hasOwn(sample,"Temperature")) return ["FriendlyName","DeviceId","Temperature","Wear","status"];
+      if (Object.hasOwn(sample,"HealthStatus")) return ["FriendlyName","DeviceId","HealthStatus","OperationalStatus","Size"];
       const first = rows[0] || {}, preferred = ["DeviceName","DisplayName","Name","Model","HotFixID","DeviceLocator","Manufacturer","DriverProviderName","DriverVersion","InfName","IsSigned","State","StartMode","Version","Capacity","Size","FreeSpace","NumberOfCores","NumberOfLogicalProcessors"];
       const keys = preferred.filter(key => Object.hasOwn(first,key)).slice(0,5);
       return keys.length ? keys : Object.keys(first).filter(key => !["xml","key"].includes(key)).slice(0,5);
     };
     $("home").href = settings.base + "manifest.html"; $("breadcrumb").textContent = settings.title;
-    $("foot-version").textContent = "EventLogCollector " + (data.toolVersion || "1.3.0.0");
+    $("foot-version").textContent = "EventLogCollector " + (data.toolVersion || "1.4.0.0");
     $("print").addEventListener("click",() => window.print());
     let timer; $("search").addEventListener("input",() => { clearTimeout(timer); timer = setTimeout(() => { query = $("search").value.trim().toLowerCase(); tables.forEach(refresh => refresh()); },160); });
     const overview = settings.kind === "collection";

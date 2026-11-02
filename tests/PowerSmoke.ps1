@@ -32,7 +32,7 @@ $power = $result.diagnostics | Where-Object channel -eq 'PowerReports'
 if (-not $result.options.powerReports -or -not (Test-Path -LiteralPath $power.path)) { throw 'Default power collection did not generate an index.' }
 if ($result.options.energyReport -ne $IncludeEnergy.IsPresent) { throw 'Energy option was not preserved.' }
 $index = Read-TestReport $power.path
-if ($index.files.Count -ne 7) { throw 'Not all seven power report applicability decisions were recorded.' }
+if ($index.files.Count -ne 11) { throw 'Not all power report and configuration decisions were recorded.' }
 if ($index.requestedDays -ne $Days -or $index.transitionReportDays -ne [Math]::Min($Days,28)) { throw 'Requested history window was not recorded.' }
 $systemPower = $index.files | Where-Object source -like 'powercfg /systempowerreport *'
 if (-not $systemPower -or $systemPower.source -notlike "*/duration $([Math]::Min($Days,28))") { throw 'System power report did not use the requested duration.' }

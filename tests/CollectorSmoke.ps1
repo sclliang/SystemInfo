@@ -53,10 +53,13 @@ Assert ($result.rootDirectory -ceq (Join-Path $deployment 'LOG') -and
     (Split-Path $result.directory -Parent) -eq $result.rootDirectory -and
     (Split-Path $result.directory -Leaf) -like 'Collection_*') 'Each run has an independent directory under LOG next to the EXE'
 Assert (-not (Test-Path -LiteralPath (Join-Path $working 'LOG'))) 'No accidental LOG directory in the caller working directory'
-$saved = @($result.logs | Where-Object status -eq 'saved')
+$saved = @($result.logs | Where-Object { $_.status -in @('saved','partial') -and $_.bytes -gt 0 })
 $failed = @($result.logs | Where-Object status -eq 'failed')
 Assert ($saved.Count -ge 3 -and ($saved.Count + $failed.Count) -eq 5) 'All channels are attempted and readable logs are saved'
-Assert ($result.schemaVersion -eq 2 -and $result.diagnostics.Count -eq 11) 'Manifest includes all eleven diagnostic categories'
+Assert ($result.schemaVersion -eq 2 -and $result.diagnostics.Count -eq 15) 'Manifest includes all fifteen diagnostic categories'
+foreach ($category in @('UserDumps','ServicingLogs','Reliability','StorageHealth')) {
+    Assert ($category -in $result.diagnostics.channel) "New diagnostic source is included: $category"
+}
 $incomplete = @(@($result.logs) + @($result.diagnostics) | Where-Object status -notin @('saved','not_found','skipped'))
 Assert ($result.success -eq ($incomplete.Count -eq 0 -and $result.manifestSaved)) 'Success includes diagnostic and manifest failures, while allowing absent optional evidence'
 Assert ($first.Code -eq $(if ($result.success) {0} else {4})) 'Process exit code matches the actual collection result'
@@ -77,6 +80,10 @@ foreach ($log in $saved) {
     $invalid = @($nativeErrors | Where-Object { $_.FullyQualifiedErrorId -notlike 'NoMatchingEventsFound*' })
     Assert ($invalid.Count -eq 0) "Get-WinEvent independently validates the EVTX, including empty logs: $($log.channel)"
     $hashes[$file.FullName] = (Get-FileHash -LiteralPath $file.FullName).Hash
+    foreach ($resource in @($log.files | Where-Object status -eq 'saved')) {
+        Assert ((Test-Path -LiteralPath $resource.path) -and (Get-Item -LiteralPath $resource.path).Length -eq $resource.bytes -and
+            $resource.path -like '*LocaleMetaData*.MTA') "Offline EVTX message resources are preserved with their final file name: $($log.channel)"
+    }
 }
 foreach ($log in $failed) { Assert ($log.errorCode -ne 0 -and $log.error.Length -gt 0) "Failure has a reason: $($log.channel)" }
 foreach ($item in $result.diagnostics) {
@@ -101,6 +108,25 @@ if ($devices.status -in @('saved','partial')) {
     $deviceSnapshot = Read-TestReport $devices.path
     Assert ($deviceSnapshot.devices.Count -gt 0 -and $deviceSnapshot.devices[0].instanceId.Length -gt 0) 'Device inventory contains native device identities and status fields'
 }
+$storage = $result.diagnostics | Where-Object channel -eq 'StorageHealth'
+$storageSnapshot = Read-TestReport $storage.path
+$counterRows = @(($storageSnapshot.sections | Where-Object class -eq 'MSFT_StorageReliabilityCounter').rows)
+$nativeDisks = @()
+try { $nativeDisks = @(Get-CimInstance -Namespace 'root/Microsoft/Windows/Storage' -ClassName MSFT_PhysicalDisk -OperationTimeoutSec 20 -ErrorAction Stop) }
+catch { Write-Host 'SKIP: independent storage provider query is unavailable.' }
+foreach ($disk in $nativeDisks) {
+    $nativeCounter = $null
+    try {
+        $response = Invoke-CimMethod -Namespace 'root/Microsoft/Windows/Storage' -ClassName PS_StorageCmdlets -MethodName GetStorageReliabilityCounter -Arguments @{PhysicalDisk=$disk} -OperationTimeoutSec 20 -ErrorAction Stop
+        if ($response.ReturnValue -eq 0) { $nativeCounter = $response.StorageReliabilityCounter }
+    } catch { Write-Host "SKIP: native reliability counter is unavailable for disk $($disk.DeviceId)." }
+    if ($null -ne $nativeCounter) {
+        $row = $counterRows | Where-Object DeviceId -eq $disk.DeviceId
+        Assert ($null -ne $row -and $row.status -eq 'saved') "Native CIM and collector can both read reliability counters for disk $($disk.DeviceId)"
+        if ($null -ne $nativeCounter.Temperature) { Assert ($null -ne $row.Temperature) 'Supported temperature data is retained rather than replaced with null' }
+        if ($null -ne $nativeCounter.Wear) { Assert ($null -ne $row.Wear) 'Supported wear data is retained rather than replaced with null' }
+    }
+}
 $timelineItem = $result.diagnostics | Where-Object channel -eq 'Timeline'
 if ($timelineItem.status -in @('saved','partial')) {
     $timeline = Read-TestReport $timelineItem.path
@@ -108,11 +134,24 @@ if ($timelineItem.status -in @('saved','partial')) {
     for ($i = 1; $i -lt $timeline.events.Count; $i++) { if ([datetime]$timeline.events[$i].timeUtc -lt [datetime]$timeline.events[$i-1].timeUtc) { $ordered = $false } }
     Assert $ordered 'Timeline events are in chronological order'
     Assert (@($timeline.events | Where-Object { -not $_.provider -or -not $_.xml -or -not $_.timeUtc }).Count -eq 0) 'Timeline preserves event provider, UTC timestamp and original XML'
+    Assert (@($timeline.events | Where-Object { [datetime]$_.timeUtc -lt [datetime]$timeline.windowStartUtc -or
+        [datetime]$_.timeUtc -gt [datetime]$timeline.windowEndUtc }).Count -eq 0) 'Timeline uses the same fixed UTC bounds as diagnostic exports'
+    $systemSource = $timeline.sources | Where-Object source -eq 'System'
+    if ($systemSource.status -eq 'saved') {
+        $xpath = "*[System[TimeCreated[@SystemTime >= '$($timeline.windowStartUtc)' and @SystemTime <= '$($timeline.windowEndUtc)'] and ((Provider[@Name='Microsoft-Windows-Kernel-Power'] and (EventID=42 or EventID=107 or EventID=506 or EventID=507)) or (Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and EventID=1) or (Provider[@Name='Microsoft-Windows-Kernel-General'] and (EventID=12 or EventID=13)))]]"
+        $expected = @(Get-WinEvent -Path $systemSource.path -FilterXPath $xpath -ErrorAction SilentlyContinue)
+        $actual = @($timeline.events | Where-Object channel -eq 'System')
+        Assert (@($expected | Where-Object { $_.RecordId -notin $actual.recordId }).Count -eq 0) 'Independent native query confirms sleep/wake and startup/shutdown context is included'
+    }
+    Assert (@($timeline.sources | Where-Object path -notlike '*.evtx').Count -eq 0) 'Message resource sidecars are not mistaken for timeline event sources'
 }
 $power = $result.diagnostics | Where-Object channel -eq 'PowerReports'
 Assert ($result.options.powerReports -and -not $result.options.energyReport -and (Test-Path -LiteralPath $power.path)) 'Power reports are collected by default, without energy sampling'
 $powerIndex = Read-TestReport $power.path
-Assert ($powerIndex.files.Count -eq 7 -and $powerIndex.requestedDays -eq 7 -and $powerIndex.transitionReportDays -eq 7) 'All power report decisions and requested days are indexed'
+Assert ($powerIndex.files.Count -eq 11 -and $powerIndex.requestedDays -eq 7 -and $powerIndex.transitionReportDays -eq 7) 'All power report decisions and requested days are indexed'
+foreach ($command in @('powercfg /getactivescheme','powercfg /query','powercfg /devicequery wake_armed')) {
+    Assert (($powerIndex.files | Where-Object source -eq $command).status -eq 'saved') "Real power configuration snapshot succeeds: $command"
+}
 Assert (($powerIndex.files | Where-Object source -like 'powercfg /energy *').status -eq 'skipped') 'Energy sampling requires explicit opt-in'
 $hashes[$result.manifestPath] = (Get-FileHash -LiteralPath $result.manifestPath).Hash
 $second = Invoke-Collector @('collect','--days','1','--no-power','--json')

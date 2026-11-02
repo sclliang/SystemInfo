@@ -100,7 +100,11 @@ namespace elm
             result.logs[i].caption = captions[i];
         }
         const std::pair<const wchar_t *, const wchar_t *> diagnostics[]{
-            {L"CrashDumps", L"蓝屏转储"}, {L"LiveKernelReports", L"实时内核转储"}, {L"WerReports", L"Windows 故障报告"}, {L"SystemInfo", L"系统与硬件"}, {L"Devices", L"设备状态与问题代码"}, {L"Drivers", L"驱动与签名信息"}, {L"DumpConfiguration", L"转储与分页文件配置"}, {L"DriverInstallation", L"设备驱动安装日志"}, {L"DiagnosticEvents", L"设备、驱动与更新事件"}, {L"Timeline", L"故障时间线"}, {L"PowerReports", L"电源与睡眠报告"}};
+            {L"CrashDumps", L"蓝屏转储"}, {L"LiveKernelReports", L"实时内核转储"}, {L"UserDumps", L"应用崩溃转储"},
+            {L"WerReports", L"Windows 故障报告"}, {L"SystemInfo", L"系统与硬件"}, {L"Devices", L"设备状态与问题代码"},
+            {L"Drivers", L"驱动与签名信息"}, {L"DumpConfiguration", L"转储与分页文件配置"}, {L"DriverInstallation", L"设备驱动安装日志"},
+            {L"ServicingLogs", L"系统维护与升级日志"}, {L"Reliability", L"可靠性历史"}, {L"StorageHealth", L"存储健康快照"},
+            {L"DiagnosticEvents", L"硬件、驱动、网络与更新事件"}, {L"Timeline", L"故障时间线"}, {L"PowerReports", L"电源与睡眠报告"}};
         for (const auto &[id, caption] : diagnostics)
         {
             CollectedLog item;
@@ -212,6 +216,8 @@ namespace elm
                     {
                 Query query; query.source = log.channel; query.limit = 0;
                 Export(query, log.path, Format::Evtx, false, cancel);
+                log.state = CollectionState::Saved;
+                CollectEventResources(log, context, log.path);
                 log.bytes = std::filesystem::file_size(log.path); });
             }
             for (auto &item : result.diagnostics)
@@ -273,7 +279,7 @@ namespace elm
     }
     std::wstring CollectionJson(const CollectionResult &result)
     {
-        std::wstring json = L"{\n  \"schemaVersion\":2,\n  \"toolVersion\":\"1.3.0.0\",\n  \"rootDirectory\":" + JsonQuote(result.rootDirectory) +
+        std::wstring json = L"{\n  \"schemaVersion\":2,\n  \"toolVersion\":\"1.4.0.0\",\n  \"rootDirectory\":" + JsonQuote(result.rootDirectory) +
                             L",\n  \"directory\":" + JsonQuote(result.directory) + L",\n  \"computerName\":" + JsonQuote(result.computerName) +
                             L",\n  \"startedUtc\":" + JsonQuote(result.startedUtc) +
                             L",\n  \"finishedUtc\":" + JsonQuote(result.finishedUtc) + L",\n  \"timeZone\":" + JsonQuote(result.timeZone) +

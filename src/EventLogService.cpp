@@ -531,6 +531,12 @@ namespace elm
         return count;
     }
 
+    void ArchiveEventResources(const std::wstring &path)
+    {
+        if (!EvtArchiveExportedLog(nullptr, AbsolutePath(path).c_str(), 0, 0))
+            throw Error(GetLastError(), L"Archive EVTX message resources: " + path);
+    }
+
     void Clear(const std::wstring &channel, const std::wstring &backup)
     {
         if (channel.empty())

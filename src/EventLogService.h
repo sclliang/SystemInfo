@@ -63,6 +63,7 @@ namespace elm
                      const std::atomic_bool *cancel = nullptr);
     size_t Export(const Query &query, const std::wstring &path, Format format,
                   bool overwrite = false, const std::atomic_bool *cancel = nullptr);
+    void ArchiveEventResources(const std::wstring &path);
     void Clear(const std::wstring &channel, const std::wstring &backup = L"");
     std::wstring AbsolutePath(const std::wstring &path);
     std::wstring LevelName(unsigned level, bool chinese = false);

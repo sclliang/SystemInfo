@@ -161,11 +161,49 @@ namespace elm
         {
             const wchar_t *name;
             std::vector<const wchar_t *> fields;
+            std::wstring filter;
+            bool fullObject = false;
         };
+        struct QueryStats
+        {
+            size_t rows = 0;
+            bool unsupported = false;
+        };
+        bool Unsupported(DWORD code)
+        {
+            return code == static_cast<DWORD>(WBEM_E_INVALID_CLASS) || code == static_cast<DWORD>(WBEM_E_NOT_SUPPORTED) ||
+                   code == static_cast<DWORD>(WBEM_E_INVALID_NAMESPACE) || code == static_cast<DWORD>(WBEM_E_INVALID_METHOD) ||
+                   code == static_cast<DWORD>(WBEM_E_METHOD_NOT_IMPLEMENTED) || code == ERROR_NOT_SUPPORTED;
+        }
+        class Bstr
+        {
+        public:
+            explicit Bstr(const wchar_t *text) : value_(SysAllocString(text))
+            {
+                if (!value_)
+                    throw Error(ERROR_NOT_ENOUGH_MEMORY, L"创建 WMI 字符串");
+            }
+            ~Bstr() { SysFreeString(value_); }
+            Bstr(const Bstr &) = delete;
+            Bstr &operator=(const Bstr &) = delete;
+            operator BSTR() const { return value_; }
+        private:
+            BSTR value_;
+        };
+        std::wstring ObjectProperty(IWbemClassObject *object, const wchar_t *name)
+        {
+            if (!object)
+                return L"null";
+            VARIANT value{};
+            const auto result = object->Get(name, 0, &value, nullptr, nullptr);
+            const auto json = SUCCEEDED(result) ? VariantJson(value) : L"null";
+            VariantClear(&value);
+            return json;
+        }
         class WmiSession
         {
         public:
-            WmiSession()
+            explicit WmiSession(const wchar_t *nameSpace = L"ROOT\\CIMV2")
             {
                 const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
                 if (FAILED(initialized) && initialized != RPC_E_CHANGED_MODE)
@@ -182,7 +220,7 @@ namespace elm
                         HResult(securityResult, L"初始化 WMI 安全上下文");
                     ComPtr<IWbemLocator> locator;
                     HResult(CoCreateInstance(CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&locator)), L"创建 WMI 连接");
-                    BSTR name = SysAllocString(L"ROOT\\CIMV2");
+                    BSTR name = SysAllocString(nameSpace);
                     if (!name)
                         throw Error(ERROR_NOT_ENOUGH_MEMORY, L"创建 WMI 命名空间");
                     const auto result = locator->ConnectServer(name, nullptr, nullptr, nullptr, WBEM_FLAG_CONNECT_USE_MAX_WAIT, nullptr, nullptr, &services_);
@@ -207,7 +245,8 @@ namespace elm
                 if (uninitialize_)
                     CoUninitialize();
             }
-            std::wstring Query(const Section &section, const DiagnosticContext &context, bool &incomplete)
+            std::wstring Query(const Section &section, const DiagnosticContext &context, bool &incomplete,
+                               QueryStats *stats = nullptr, const std::function<void(IWbemClassObject *)> &visitor = {})
             {
                 std::wstring rows = L"[";
                 DWORD code = 0;
@@ -217,13 +256,20 @@ namespace elm
                 {
                     CheckDiagnosticCancel(context);
                     std::wstring query = L"SELECT ";
-                    for (size_t i = 0; i < section.fields.size(); ++i)
+                    if (section.fullObject)
+                        query += L"*";
+                    else
                     {
-                        if (i)
-                            query += L",";
-                        query += section.fields[i];
+                        for (size_t i = 0; i < section.fields.size(); ++i)
+                        {
+                            if (i)
+                                query += L",";
+                            query += section.fields[i];
+                        }
                     }
                     query += L" FROM " + std::wstring(section.name);
+                    if (!section.filter.empty())
+                        query += L" WHERE " + section.filter;
                     BSTR language = SysAllocString(L"WQL"), text = SysAllocString(query.c_str());
                     if (!language || !text)
                     {
@@ -248,7 +294,7 @@ namespace elm
                         HResult(next, L"读取 WMI 结果");
                         if (returned)
                         {
-                            if (count >= 10000)
+                            if (count >= 10000 || rows.size() >= 16ULL * 1024 * 1024)
                                 throw Error(ERROR_MORE_DATA, L"WMI 返回条数达到上限");
                             if (count++)
                                 rows += L",";
@@ -264,6 +310,8 @@ namespace elm
                                 VariantClear(&value);
                             }
                             rows += L"}";
+                            if (visitor)
+                                visitor(object.Get());
                         }
                         if (next == WBEM_S_FALSE)
                             break;
@@ -277,7 +325,12 @@ namespace elm
                     code = error.code;
                     message = error.text;
                 }
-                const bool unsupported = code == static_cast<DWORD>(WBEM_E_INVALID_CLASS) || code == static_cast<DWORD>(WBEM_E_NOT_SUPPORTED);
+                const bool unsupported = Unsupported(code);
+                if (stats)
+                {
+                    stats->rows = count;
+                    stats->unsupported = unsupported;
+                }
                 if (code && !unsupported)
                     incomplete = true;
                 return L"{\"class\":" + JsonQuote(section.name) + L",\"status\":" +
@@ -285,6 +338,95 @@ namespace elm
                                                                 : L"partial") +
                        L",\"errorCode\":" + std::to_wstring(code) + L",\"message\":" + JsonQuote(message) +
                        L",\"rows\":" + rows + L"\n]}";
+            }
+
+            std::wstring StorageCounter(IWbemClassObject *disk, const DiagnosticContext &context, bool &incomplete)
+            {
+                ComPtr<IWbemClassObject> counter;
+                DWORD code = 0;
+                std::wstring message;
+                try
+                {
+                    CheckDiagnosticCancel(context);
+                    Bstr className(L"PS_StorageCmdlets"), method(L"GetStorageReliabilityCounter");
+                    ComPtr<IWbemClassObject> definition, inputDefinition, input;
+                    HResult(services_->GetObject(className, 0, nullptr, &definition, nullptr), L"读取存储诊断接口");
+                    HResult(definition->GetMethod(method, 0, &inputDefinition, nullptr), L"读取磁盘计数器方法");
+                    HResult(inputDefinition->SpawnInstance(0, &input), L"创建磁盘计数器参数");
+                    VARIANT argument{};
+                    argument.vt = VT_UNKNOWN;
+                    argument.punkVal = disk; // Put copies the value; the caller retains ownership of disk.
+                    HResult(input->Put(L"PhysicalDisk", 0, &argument, 0), L"设置磁盘计数器参数");
+                    ComPtr<IWbemCallResult> pending;
+                    HResult(services_->ExecMethod(className, method, WBEM_FLAG_RETURN_IMMEDIATELY, nullptr,
+                                                 input.Get(), nullptr, &pending), L"读取存储可靠性计数器");
+                    if (!pending)
+                        throw Error(ERROR_INVALID_DATA, L"存储计数器接口未返回操作句柄");
+                    const auto started = GetTickCount64();
+                    for (;;)
+                    {
+                        CheckDiagnosticCancel(context);
+                        LONG operation = 0;
+                        const auto wait = pending->GetCallStatus(500, &operation);
+                        HResult(wait, L"等待存储可靠性计数器");
+                        if (wait != WBEM_S_TIMEDOUT)
+                        {
+                            HResult(operation, L"读取存储可靠性计数器");
+                            break;
+                        }
+                        if (GetTickCount64() - started >= 20000)
+                            throw Error(ERROR_TIMEOUT, L"存储计数器读取超时（20 秒）");
+                    }
+                    ComPtr<IWbemClassObject> output;
+                    HResult(pending->GetResultObject(0, &output), L"读取存储计数器结果");
+                    if (!output)
+                        throw Error(ERROR_INVALID_DATA, L"存储计数器接口未返回结果对象");
+                    VARIANT value{};
+                    if (SUCCEEDED(output->Get(L"ReturnValue", 0, &value, nullptr, nullptr)))
+                    {
+                        if (value.vt == VT_I4 || value.vt == VT_UI4)
+                            code = value.ulVal;
+                        VariantClear(&value);
+                        if (code)
+                            throw Error(code, L"存储计数器方法返回失败");
+                    }
+                    const auto read = output->Get(L"StorageReliabilityCounter", 0, &value, nullptr, nullptr);
+                    if (SUCCEEDED(read) && value.vt == VT_UNKNOWN && value.punkVal)
+                        value.punkVal->QueryInterface(IID_PPV_ARGS(&counter));
+                    else if (SUCCEEDED(read) && value.vt == (VT_ARRAY | VT_UNKNOWN) && value.parray)
+                    {
+                        LONG first = 0, last = -1;
+                        if (SUCCEEDED(SafeArrayGetLBound(value.parray, 1, &first)) && SUCCEEDED(SafeArrayGetUBound(value.parray, 1, &last)) && first <= last)
+                        {
+                            ComPtr<IUnknown> embedded;
+                            if (SUCCEEDED(SafeArrayGetElement(value.parray, &first, embedded.GetAddressOf())) && embedded)
+                                embedded.As(&counter);
+                        }
+                    }
+                    VariantClear(&value);
+                    HResult(read, L"读取存储可靠性数据");
+                    if (!counter)
+                        message = L"设备或存储提供程序未返回可靠性计数器。";
+                }
+                catch (const Error &error)
+                {
+                    if (error.code == ERROR_CANCELLED)
+                        throw;
+                    code = error.code;
+                    message = error.text;
+                }
+                if (code && !Unsupported(code))
+                    incomplete = true;
+                std::wstring json = L"{\"DeviceId\":" + ObjectProperty(disk, L"DeviceId") +
+                    L",\"FriendlyName\":" + ObjectProperty(disk, L"FriendlyName") + L",\"status\":" +
+                    JsonQuote(code ? Unsupported(code) ? L"skipped" : L"failed" : counter ? L"saved" : L"not_found") +
+                    L",\"errorCode\":" + std::to_wstring(code) + L",\"message\":" + JsonQuote(message);
+                for (const auto *field : {L"Temperature", L"TemperatureMax", L"Wear", L"PowerOnHours", L"ReadErrorsTotal",
+                    L"ReadErrorsCorrected", L"ReadErrorsUncorrected", L"WriteErrorsTotal", L"WriteErrorsCorrected",
+                    L"WriteErrorsUncorrected", L"ReadLatencyMax", L"WriteLatencyMax", L"FlushLatencyMax",
+                    L"StartStopCycleCount", L"LoadUnloadCycleCount"})
+                    json += L"," + JsonQuote(field) + L":" + ObjectProperty(counter.Get(), field);
+                return json + L"}";
             }
 
         private:
@@ -412,6 +554,94 @@ namespace elm
                                      L"DriverDate 是驱动包日期，不代表实际安装时间；签名字段来自系统清单，未执行独立签名验证。\",\"sections\":" +
                                      sections + L"}\n");
     }
+    void CollectReliability(CollectedLog &item, const DiagnosticContext &context)
+    {
+        item.path = (context.output / L"Reliability.html").wstring();
+        const auto start = context.now - std::min(context.now, static_cast<uint64_t>(context.options.days) * 86400ULL * 10000000);
+        auto dmtf = [](uint64_t ticks)
+        {
+            FILETIME time{static_cast<DWORD>(ticks), static_cast<DWORD>(ticks >> 32)};
+            SYSTEMTIME value{};
+            if (!FileTimeToSystemTime(&time, &value))
+                throw Error(GetLastError(), L"转换可靠性查询时间");
+            wchar_t text[32]{};
+            swprintf_s(text, L"%04u%02u%02u%02u%02u%02u.%03u000+000", value.wYear, value.wMonth, value.wDay,
+                       value.wHour, value.wMinute, value.wSecond, value.wMilliseconds);
+            return std::wstring(text);
+        };
+        std::wstring section;
+        try
+        {
+            bool incomplete = false;
+            QueryStats stats;
+            WmiSession session;
+            section = session.Query({L"Win32_ReliabilityRecords", {L"TimeGenerated", L"SourceName", L"ProductName", L"EventIdentifier",
+                L"Message", L"RecordNumber", L"Logfile", L"ComputerName", L"User", L"InsertionStrings"},
+                L"TimeGenerated >= '" + dmtf(start) + L"' AND TimeGenerated <= '" + dmtf(context.now) + L"'"}, context, incomplete, &stats);
+            item.state = incomplete ? CollectionState::Partial : stats.unsupported ? CollectionState::Skipped :
+                stats.rows ? CollectionState::Saved : CollectionState::NotFound;
+            item.error = incomplete ? ERROR_PARTIAL_COPY : 0;
+            item.message = incomplete ? L"可靠性历史未能完整读取，详细原因见报告。" : stats.unsupported ? L"系统未提供可靠性历史接口。" :
+                stats.rows ? L"已保存 " + std::to_wstring(stats.rows) + L" 条可靠性记录。" : L"指定范围内没有可用的可靠性历史。";
+        }
+        catch (const Error &error)
+        {
+            if (error.code == ERROR_CANCELLED)
+                throw;
+            item.state = Unsupported(error.code) ? CollectionState::Skipped : CollectionState::Failed;
+            item.error = error.code;
+            item.message = error.text;
+            section = L"{\"class\":\"Win32_ReliabilityRecords\",\"status\":" + JsonQuote(CollectionStateName(item.state)) +
+                      L",\"errorCode\":" + std::to_wstring(error.code) + L",\"message\":" + JsonQuote(error.text) + L",\"rows\":[]}";
+        }
+        SaveDiagnosticReport(item, context, L"{\"windowStartUtc\":" + JsonQuote(DiagnosticUtc(start)) +
+            L",\"windowEndUtc\":" + JsonQuote(DiagnosticUtc(context.now)) + L",\"sections\":[" + section +
+            L"],\"note\":\"可靠性历史取决于 Windows 已保留的数据及可靠性提供程序配置；TimeGenerated 保留 WMI DMTF 时间与时区。\"}");
+    }
+
+    void CollectStorageHealth(CollectedLog &item, const DiagnosticContext &context)
+    {
+        item.path = (context.output / L"StorageHealth.html").wstring();
+        std::wstring sections;
+        try
+        {
+            WmiSession session(L"ROOT\\Microsoft\\Windows\\Storage");
+            bool incomplete = false;
+            QueryStats stats;
+            std::wstring counters = L"[";
+            size_t count = 0;
+            // The method requires the full provider object (including ObjectId), not a projected inventory row.
+            const auto disks = session.Query({L"MSFT_PhysicalDisk", {L"DeviceId", L"FriendlyName", L"SerialNumber", L"FirmwareVersion",
+                L"MediaType", L"BusType", L"HealthStatus", L"OperationalStatus", L"Size"}, {}, true}, context, incomplete, &stats,
+                [&](IWbemClassObject *disk)
+                {
+                    if (count++)
+                        counters += L",";
+                    counters += session.StorageCounter(disk, context, incomplete);
+                });
+            item.state = incomplete ? CollectionState::Partial : stats.unsupported ? CollectionState::Skipped :
+                stats.rows ? CollectionState::Saved : CollectionState::NotFound;
+            item.error = incomplete ? ERROR_PARTIAL_COPY : 0;
+            item.message = incomplete ? L"部分磁盘或可靠性计数器无法读取，逐盘结果见报告。" :
+                stats.unsupported ? L"系统未提供存储健康接口。" : !stats.rows ? L"存储提供程序未返回物理磁盘。" : L"已保存磁盘状态及可用的可靠性计数器。";
+            sections = disks + L",{\"class\":\"MSFT_StorageReliabilityCounter\",\"status\":" +
+                JsonQuote(CollectionStateName(item.state)) + L",\"rows\":" + counters + L"]}";
+        }
+        catch (const Error &error)
+        {
+            if (error.code == ERROR_CANCELLED)
+                throw;
+            item.state = Unsupported(error.code) ? CollectionState::Skipped : CollectionState::Failed;
+            item.error = error.code;
+            item.message = error.text;
+            sections = L"{\"class\":\"MSFT_PhysicalDisk\",\"status\":" + JsonQuote(CollectionStateName(item.state)) +
+                L",\"errorCode\":" + std::to_wstring(error.code) + L",\"message\":" + JsonQuote(error.text) + L",\"rows\":[]}";
+        }
+        SaveDiagnosticReport(item, context, L"{\"collectedAtUtc\":" + JsonQuote(DiagnosticUtc(context.now)) +
+            L",\"sections\":[" + sections + L"],\"note\":\"采集时的存储健康快照；温度、磨损及错误计数由硬件和驱动提供，不可用字段保留 null。"
+            L"TemperatureMax 是正常工作温度上限，不是历史最高温；Wear 为已消耗寿命百分比。此接口不保证提供全部 SMART/NVMe 属性。\"}");
+    }
+
     void CollectDevices(CollectedLog &item, const DiagnosticContext &context)
     {
         item.path = (context.output / L"Devices.html").wstring();

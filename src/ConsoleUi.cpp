@@ -51,6 +51,8 @@ namespace elm
             if (UseChinese())
                 return item.caption;
             static const std::map<std::wstring, std::wstring> captions{
+                {L"UserDumps", L"Application crash dumps"}, {L"ServicingLogs", L"Servicing and upgrade logs"},
+                {L"Reliability", L"Reliability history"}, {L"StorageHealth", L"Storage health snapshot"},
                 {L"System", L"System events"}, {L"Application", L"Application events"}, {L"Security", L"Security events"}, {L"Setup", L"Setup events"}, {L"ForwardedEvents", L"Forwarded events"}, {L"CrashDumps", L"Crash dumps"}, {L"LiveKernelReports", L"Live kernel reports"}, {L"WerReports", L"Windows Error Reporting"}, {L"SystemInfo", L"System and hardware"}, {L"Devices", L"Devices and problem codes"}, {L"Drivers", L"Drivers and signatures"}, {L"DumpConfiguration", L"Dump and page file setup"}, {L"DriverInstallation", L"Driver installation logs"}, {L"DiagnosticEvents", L"Device/driver/update events"}, {L"Timeline", L"Fault timeline"}, {L"PowerReports", L"Power and sleep reports"}};
             const auto found = captions.find(item.channel);
             return found != captions.end() ? found->second : item.channel;
@@ -259,7 +261,7 @@ namespace elm
             DWORD length = static_cast<DWORD>(std::size(computer));
             GetComputerNameExW(ComputerNameDnsHostname, computer, &length);
             const auto bar = console.paint(L"96", L"▌");
-            std::wstring text = L"\n  " + bar + L" " + console.paint(L"97;1", L"EventLogCollector") + L"  " + console.paint(L"90", L"v1.3.0.0") +
+            std::wstring text = L"\n  " + bar + L" " + console.paint(L"97;1", L"EventLogCollector") + L"  " + console.paint(L"90", L"v1.4.0.0") +
                                 L"\n  " + bar + L" " + console.paint(L"37", Text(L"Windows 事件日志与诊断信息收集器", L"Windows Event Log and Diagnostic Collector")) + L"\n\n";
             text += Field(console, Text(L"计算机", L"Computer"), computer);
             text += Field(console, Text(L"输出位置", L"Output"), initial.rootDirectory);

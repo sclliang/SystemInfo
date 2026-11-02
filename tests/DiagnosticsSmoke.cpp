@@ -2,6 +2,7 @@
 #include "../src/HtmlReport.h"
 #include <shellapi.h>
 #include <fstream>
+#include <algorithm>
 #include <stdexcept>
 #include <thread>
 
@@ -66,7 +67,9 @@ void PowerFixtures(const fs::path& root) {
     FILETIME now{}; GetSystemTimeAsFileTime(&now); context.now = FileTimeValue(now);
     context.output = root / L"Power 报告 with spaces";
     CollectedLog basic; CollectPowerReports(basic, context);
-    Assert(basic.state == CollectionState::Saved && basic.files.size() == 7, L"Default power collection indexes all seven commands");
+    Assert(basic.state == CollectionState::Saved && basic.files.size() == 11, L"Default power collection indexes reports and configuration snapshots");
+    Assert(PowerFile(basic, L"/query").state == CollectionState::Saved && PowerFile(basic, L"/waketimers").state == CollectionState::Saved &&
+        PowerFile(basic, L"/devicequery wake_armed").state == CollectionState::Saved, L"Power settings, wake timers and wake-capable devices are persisted");
     const auto& system = PowerFile(basic, L"/systempowerreport");
     Assert(system.state == CollectionState::Saved && system.source.ends_with(L"/duration 7") && fs::exists(system.path) && system.bytes > 0,
         L"Default system power HTML uses seven days and supports Unicode/spaces in paths");
@@ -93,7 +96,7 @@ void PowerFixtures(const fs::path& root) {
     }
     auto missingTool = context; missingTool.output = root / L"MissingPowerTool"; missingTool.powercfgExecutable = root / L"missing.exe";
     CollectedLog missing; CollectPowerReports(missing, missingTool);
-    Assert(missing.state == CollectionState::Partial && PowerFile(missing, L"/systempowerreport").error == ERROR_FILE_NOT_FOUND && missing.files.size() == 7,
+    Assert(missing.state == CollectionState::Partial && PowerFile(missing, L"/systempowerreport").error == ERROR_FILE_NOT_FOUND && missing.files.size() == 11,
         L"A process launch failure is indexed without abandoning other command decisions");
     auto timeout = context; timeout.output = root / L"TimeoutPower"; timeout.options.energyReport = true; timeout.energyCommandTimeoutMs = 500;
     CollectedLog timed; CollectPowerReports(timed, timeout);
@@ -112,6 +115,87 @@ void PowerFixtures(const fs::path& root) {
     Assert(threw && PowerFile(interrupted, L"/energy").state == CollectionState::Cancelled && fs::exists(interrupted.path) &&
         fs::exists(cancelled.output / L"PowerReports" / L"system-power.html") && !fs::exists(cancelled.output / L"PowerReports" / L"energy.html"),
         L"Cancellation stops live energy sampling, persists the index and preserves completed HTML");
+}
+void UserAndServicingFixtures(const fs::path& root, uint64_t now) {
+    using namespace elm;
+    DiagnosticContext context;
+    context.output = root / L"UserSources";
+    context.windows = root / L"SourceWindows";
+    context.programData = root / L"SourceProgramData";
+    context.currentUserProfile = root / L"Profiles" / L"Alice";
+    context.localAppData = context.currentUserProfile / L"AppData" / L"Local";
+    const auto other = root / L"Profiles" / L"Bob";
+    context.otherUsers.push_back({L"S-1-5-21-100-200-300-1001", other, other / L"AppData" / L"Local"});
+    context.userProfilesResolved = true;
+    context.localDumpsRegistry = HKEY_CURRENT_USER;
+    context.localDumpsKey = L"SOFTWARE\\sixunited\\EventLogCollector\\Fixture-" + root.filename().wstring();
+    context.now = now;
+    struct RemoveKey { std::wstring path; ~RemoveKey() { RegDeleteTreeW(HKEY_CURRENT_USER, path.c_str()); } } cleanup{context.localDumpsKey};
+    auto setting = [&](const wchar_t* app, const std::wstring& value) {
+        const auto path = context.localDumpsKey + (app[0] ? L"\\" + std::wstring(app) : L"");
+        HKEY key = nullptr;
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, path.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
+            throw std::runtime_error("Cannot create isolated LocalDumps fixture key");
+        const auto code = RegSetValueExW(key, L"DumpFolder", 0, REG_EXPAND_SZ, reinterpret_cast<const BYTE*>(value.c_str()),
+            static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(key);
+        if (code) throw std::runtime_error("Cannot write isolated LocalDumps fixture value");
+    };
+    setting(L"", L"%LOCALAPPDATA%\\CrashDumps");
+    setting(L"Custom.exe", L"%UsErPrOfIlE%\\Custom Dumps");
+    setting(L"Shared.exe", (root / L"SharedDumps").wstring());
+    for (const auto& user : DiagnosticUsers(context)) {
+        CreateSample(user.localAppData / L"CrashDumps" / L"same.dmp", L"dump", now - 1000);
+        CreateSample(user.profile / L"Custom Dumps" / L"custom.dmp", L"custom", now - 1000);
+        CreateSample(user.localAppData / L"Microsoft" / L"Windows" / L"WER" / L"ReportQueue" / L"App" / L"Report.wer", L"report", now - 1000);
+    }
+    CreateSample(root / L"SharedDumps" / L"shared.dmp", L"shared", now - 1000);
+    CollectedLog dumps; dumps.channel = L"UserDumps"; CollectUserDumps(dumps, context);
+    Assert(dumps.state == CollectionState::Saved && Count(dumps, CollectionState::Saved) == 5 && context.dumpBytesCopied == 26,
+        L"LocalDumps resolves global/per-app settings and copies each source once across registry views and users");
+    Assert(fs::exists(context.output / L"UserDumps" / L"CurrentUser" / L"same.dmp") &&
+        fs::exists(context.output / L"UserDumps" / L"Users" / context.otherUsers[0].id / L"same.dmp"),
+        L"Equal application dump filenames from different profiles remain distinct");
+    bool unknown = false;
+    try { ExpandDiagnosticUserPath(L"%UNRESOLVED_USER_VARIABLE%\\CrashDumps", context.otherUsers[0], context); }
+    catch (const Error& error) { unknown = error.code == ERROR_BAD_ENVIRONMENT; }
+    Assert(unknown, L"Another user's unresolved variables cannot silently resolve against the collector account");
+    CollectedLog wer; CollectWerReports(wer, context);
+    Assert(Count(wer, CollectionState::Saved) == 2 && fs::exists(context.output / L"WerReports" / L"Users" /
+        context.otherUsers[0].id / L"ReportQueue" / L"App" / L"Report.wer"), L"WER collects the original fault user's reports in multi-account scenarios");
+
+    const uint64_t day = 86400ULL * 10000000;
+    CreateSample(context.windows / L"Logs" / L"CBS" / L"CBS.log", L"abcdef", now - 3000);
+    CreateSample(context.windows / L"Logs" / L"CBS" / L"CbsPersist_recent.cab", L"abcdef", now - 3000);
+    CreateSample(context.windows / L"Logs" / L"CBS" / L"CbsPersist_old.log", L"expired", now - 30 * day);
+    CreateSample(context.windows / L"Logs" / L"CBS" / L"unrelated.txt", L"ignore", now);
+    CreateSample(context.windows / L"Logs" / L"DISM" / L"dism.log", L"abcdef", now - 3000);
+    CreateSample(context.windows / L"Logs" / L"WindowsUpdate" / L"update.etl", L"abcdef", now - 1000);
+    CreateSample(context.programData / L"USOShared" / L"Logs" / L"update.etl", L"abcdef", now - 1000);
+    context.maxServicingTotalBytes = 18;
+    const auto auxiliary = context.auxiliaryBytesCopied;
+    CollectedLog servicing; CollectServicingLogs(servicing, context);
+    Assert(Count(servicing, CollectionState::Saved) == 3 && Count(servicing, CollectionState::Skipped) == 2 &&
+        Find(servicing, L"CBS.log")->state == CollectionState::Saved && Find(servicing, L"dism.log")->state == CollectionState::Saved,
+        L"Servicing budget reserves space for text/CAB history before newer update ETL files");
+    Assert(!Find(servicing, L"CbsPersist_old.log") && !Find(servicing, L"unrelated.txt") && context.auxiliaryBytesCopied == auxiliary,
+        L"Servicing respects the recent window and filename selection without consuming the WER/driver budget");
+    auto active = context; active.output = root / L"ActiveLogSnapshot"; active.windows = root / L"ActiveWindows";
+    active.maxServicingTotalBytes = 16 * 1024 * 1024;
+    const auto activeLog = active.windows / L"Logs" / L"CBS" / L"CBS.log";
+    CreateSample(activeLog, std::wstring(8 * 1024 * 1024, L'x'), now);
+    HANDLE writer = CreateFileW(activeLog.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (writer == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot open active CBS fixture writer");
+    std::jthread append([&](std::stop_token stop) {
+        while (!stop.stop_requested()) { DWORD written = 0; WriteFile(writer, "x", 1, &written, nullptr); Sleep(1); }
+    });
+    CollectedLog liveLog; CollectServicingLogs(liveLog, active);
+    append.request_stop(); append.join(); CloseHandle(writer);
+    const auto* snapshot = Find(liveLog, L"CBS.log");
+    Assert(snapshot && (snapshot->state == CollectionState::Saved || snapshot->state == CollectionState::Partial) &&
+        fs::file_size(snapshot->path) == snapshot->bytes && snapshot->bytes <= active.maxServicingTotalBytes,
+        L"An actively appended CBS log retains a bounded, indexed snapshot instead of losing all evidence");
 }
 void Run(const fs::path& root) {
     using namespace elm;
@@ -213,7 +297,8 @@ void Run(const fs::path& root) {
     preview.computerName = L"HTML-PREVIEW"; preview.startedUtc = DiagnosticUtc(context.now); preview.finishedUtc = preview.startedUtc;
     preview.finished = true; preview.manifestSaved = true; preview.elapsedMs = 2400;
     for (auto *entry : CollectionEntries(preview)) entry->state = CollectionState::Skipped;
-    auto &devices = preview.diagnostics[4]; devices.state = CollectionState::Saved;
+    auto &devices = *std::find_if(preview.diagnostics.begin(), preview.diagnostics.end(), [](const auto& item) { return item.channel == L"Devices"; });
+    devices.state = CollectionState::Saved;
     devices.path = (reportRoot / L"Devices.html").wstring();
     std::wstring deviceData = L"{\"note\":\"用于验证分页、筛选、搜索与原始字段保留。\",\"devices\":[";
     for (unsigned i = 0; i < 123; ++i) {
@@ -233,6 +318,7 @@ void Run(const fs::path& root) {
     SaveDiagnosticReport(evidence, previewContext, L"{\"files\":" + CollectedFilesJson(evidence.files) + L"}");
     WriteDiagnosticFile(preview.manifestPath, ReportHtml(L"日志与诊断采集报告", CollectionJson(preview), reportRoot, preview.manifestPath, L"collection"));
     PowerFixtures(root);
+    UserAndServicingFixtures(root, context.now);
     WriteDiagnosticFile(root / L"report.txt", report);
 }
 }
