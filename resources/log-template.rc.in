@@ -1,0 +1,3 @@
+#include <windows.h>
+#include "@CMAKE_CURRENT_SOURCE_DIR@/src/eventlog/resource.h"
+IDR_HTML_REPORT RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/resources/eventlog/report.html"

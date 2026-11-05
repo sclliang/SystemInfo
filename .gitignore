@@ -1,8 +1,8 @@
-.vs/
-build/
-*.vcxproj.user
-*.VC.db
-*.VC.opendb
+/build/
 /package/
-/[Ll][Oo][Gg]/
+/artifacts/
+LOG/
 *.evtx
+*.dmp
+/.vs/
+*.user

@@ -1,0 +1,5 @@
+#include <windows.h>
+201 RCDATA "AMIDEWINx64.EXE"
+202 RCDATA "amifldrv64.sys"
+203 RCDATA "amigendrv64.sys"
+204 RCDATA "amifldrv32.sys"
