@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../power/Battery.h"
 #include <stop_token>
 #include <string>
 #include <vector>
@@ -21,6 +22,8 @@ struct Snapshot
     std::wstring diagnostic;
     // Fatal snapshot failure only (for example, CIMV2 could not be opened).
     std::wstring error;
+    // Populated by the application alongside the original hardware rows.
+    std::optional<system_info::power::Reading> battery;
 };
 
 // 同步采集一份只用于主窗口展示的硬件信息快照。rows 始终按旧 Win32

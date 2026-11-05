@@ -179,6 +179,12 @@ ftc::hardware_info::Snapshot CollectComputerInfo(std::stop_token token)
         if (!snapshot.diagnostic.empty()) snapshot.diagnostic += L"\r\n";
         snapshot.diagnostic += ami.diagnostic;
     }
+    if (!token.stop_requested())
+    {
+        try { snapshot.battery = power::Read(); }
+        catch (...) { /* Other hardware rows are still valid. */ }
+        snapshot.rows.push_back({L"电池信息", snapshot.battery ? power::FormatReport(*snapshot.battery) : L"N/A"});
+    }
     return snapshot;
 }
 }

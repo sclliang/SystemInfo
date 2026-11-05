@@ -1,10 +1,12 @@
 #include <Windows.h>
+#include <dwmapi.h>
 #include <shellapi.h>
 #include <objbase.h>
 #include <fluentui/app_window.hpp>
 #include "Collection.h"
 #include "InformationView.h"
-#include "Report.h"
+#include "DiagnosticReport.h"
+#include "WindowPlacement.h"
 #include "firmware/AmiFirmware.h"
 #include <filesystem>
 #include <fstream>
@@ -65,22 +67,23 @@ int RunWindow(const Arguments& arguments, int show)
     MONITORINFO monitor{sizeof(monitor)};
     if (!GetMonitorInfoW(MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST), &monitor))
         throw std::runtime_error("Monitor information unavailable");
-    const RECT work = monitor.rcWork;
-    const int halfWidth = (work.right - work.left) / 2;
-    const int halfHeight = (work.bottom - work.top) / 2;
+    const RECT& work = monitor.rcWork;
+    const RECT bounds = system_info::InitialWindowBounds(work);
+    const int initialWidth = bounds.right - bounds.left;
+    const int initialHeight = bounds.bottom - bounds.top;
     const float initialScale = static_cast<float>(GetDpiForSystem()) / 96.f * arguments.scale;
     fluent::AppWindow window;
     system_info::Collection collection;
     system_info::LogCollection logs;
     fluent::AppWindowOptions options;
     options.title = L"SystemInfo · 电脑信息";
-    options.width = arguments.width > 0 ? arguments.width : static_cast<float>(halfWidth) / initialScale;
-    options.height = arguments.height > 0 ? arguments.height : static_cast<float>(halfHeight) / initialScale;
+    options.systemTitleBar = true;
+    options.width = arguments.width > 0 ? arguments.width : static_cast<float>(initialWidth) / initialScale;
+    options.height = arguments.height > 0 ? arguments.height : static_cast<float>(initialHeight) / initialScale;
     options.minimumWidth = (std::min)(440.f, options.width);
     options.minimumHeight = (std::min)(300.f, options.height);
     options.autoCenter = false;
-    options.initialPosition = POINT{work.left + (work.right - work.left - halfWidth) / 2,
-        work.top + (work.bottom - work.top - halfHeight) / 2};
+    options.initialPosition = POINT{bounds.left, bounds.top};
     options.autoVisible = false;
     options.backgroundEffect = fluent::WindowEffect::Normal;
     options.host.theme = fluent::ThemeMode::Light;
@@ -88,11 +91,9 @@ int RunWindow(const Arguments& arguments, int show)
     options.host.visualStyle = fluent::VisualStyle::WinUI3;
     options.icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
     if (!window.create(nullptr, options)) throw std::runtime_error("Window creation failed");
-    // Position in physical pixels after creation so mixed monitor DPIs cannot
-    // change the user's requested half-work-area size or center point.
     if (arguments.width == 0)
-        SetWindowPos(window.hwnd(), nullptr, options.initialPosition->x, options.initialPosition->y,
-            halfWidth, halfHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(window.hwnd(), nullptr, bounds.left, bounds.top,
+            initialWidth, initialHeight, SWP_NOZORDER | SWP_NOACTIVATE);
     else
         window.centerOnDesktop();
     int exitCode = 0;
@@ -127,7 +128,7 @@ int RunWindow(const Arguments& arguments, int show)
     window.setCloseHandler([&] { logs.Cancel(); collection.Stop(); return true; });
     window.setClosedHandler([] { PostQuitMessage(0); });
     if (!SetTimer(window.hwnd(), kPollTimer, 100, nullptr)) throw std::runtime_error("SetTimer failed");
-    ShowWindow(window.hwnd(), arguments.smoke ? SW_HIDE : show);
+    if (!arguments.smoke) ShowWindow(window.hwnd(), show);
     refresh();
     if (arguments.smokeLogs) information->ActivateLogButton();
 
@@ -170,7 +171,8 @@ int RunWindow(const Arguments& arguments, int show)
             if (ready && logsReady && !arguments.snapshot.empty() && !captureRequested)
             {
                 window.host().painter().captureNextFrame(arguments.snapshot.wstring());
-                if (arguments.smoke) ShowWindow(window.hwnd(), SW_SHOWNOACTIVATE);
+                if (arguments.smoke)
+                    ShowWindow(window.hwnd(), arguments.width == 0 ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE);
                 window.host().invalidate(true);
                 captureRequested = true;
             }
@@ -182,11 +184,17 @@ int RunWindow(const Arguments& arguments, int show)
                 {
                     RECT actual{};
                     GetWindowRect(window.hwnd(), &actual);
+                    RECT frame{};
+                    const bool hasFrame = SUCCEEDED(DwmGetWindowAttribute(window.hwnd(), DWMWA_EXTENDED_FRAME_BOUNDS,
+                        &frame, sizeof(frame)));
                     auto layoutPath = arguments.snapshot;
                     layoutPath += L".layout.txt";
                     std::ofstream layout(layoutPath);
                     layout << "work=" << work.left << ',' << work.top << ',' << work.right - work.left << ',' << work.bottom - work.top << '\n';
                     layout << "window=" << actual.left << ',' << actual.top << ',' << actual.right - actual.left << ',' << actual.bottom - actual.top << '\n';
+                    if (hasFrame) layout << "visible_frame=" << frame.left << ',' << frame.top << ','
+                        << frame.right - frame.left << ',' << frame.bottom - frame.top << '\n';
+                    layout << "maximized=" << (IsZoomed(window.hwnd()) != FALSE) << '\n';
                     layout << "dpi=" << GetDpiForWindow(window.hwnd()) << '\n';
                     layout << "computer_ready_ms=" << computerReadyMs << "\nssd_ready_ms=" << ssdReadyMs
                         << "\ncomputer_shown_while_ssd_pending=" << displayedWhileSsdPending << '\n';
@@ -222,40 +230,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int show)
     Arguments arguments;
     try { arguments = ReadArguments(); }
     catch (...) { return 2; }
-    if (!arguments.amiReport.empty())
-    {
-        try
-        {
-            const auto ami = system_info::firmware::ReadEmbeddedAmi({});
-            std::wstring text = L"AMIDEWIN 内嵌固件读取验证\r\n";
-            text += L"版本：" SYSTEMINFO_VERSION L"\r\n";
-            text += L"已解析字符串字段：" + std::to_wstring(ami.values.commands.size()) + L" / 7\r\n";
-            for (const auto& [command, label] : {std::pair{L"SU", L"UUID"},
-                std::pair{L"SS", L"系统SN"}, std::pair{L"BS", L"主板SN"}})
-            {
-                const auto found = ami.values.commands.find(command);
-                text += std::wstring(label) + L"（AMIDEWIN /" + command + L"）：" +
-                    (found == ami.values.commands.end() ? L"读取失败，界面使用原采集方案" : found->second) + L"\r\n";
-            }
-            text += L"EC版本：" + (ami.values.ecVersion.empty() ? L"N/A" : ami.values.ecVersion) + L"\r\n";
-            text += L"诊断：" + (ami.diagnostic.empty() ? L"无" : ami.diagnostic) + L"\r\n\r\n" + ami.evidence;
-            if (!system_info::WriteText(arguments.amiReport, text)) return 3;
-            return ami.values.commands.empty() ? 1 : 0;
-        }
-        catch (...) { return 1; }
-    }
-    if (!arguments.report.empty())
-    {
-        try
-        {
-            auto snapshot = system_info::firmware::CollectComputerInfo();
-            try { system_info::storage::ApplySsdInfo(snapshot, system_info::storage::CollectSsdInfo()); }
-            catch (...) { system_info::storage::ApplySsdInfo(snapshot, {L"N/A", L"SSD SMART 读取失败。"}); }
-            if (!system_info::WriteReport(arguments.report, snapshot)) return 3;
-            return snapshot.error.empty() ? 0 : 1;
-        }
-        catch (...) { return 1; }
-    }
+    if (!arguments.amiReport.empty()) return system_info::WriteDiagnosticReport(arguments.amiReport, true);
+    if (!arguments.report.empty()) return system_info::WriteDiagnosticReport(arguments.report, false);
     const HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     if (FAILED(initialized)) return 1;
     int result = 1;

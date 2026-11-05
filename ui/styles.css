@@ -1,0 +1,202 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  color: #233b48;
+  background: #f1f5f6;
+  --ink: #18333e;
+  --muted: #526973;
+  --teal: #07685e;
+  --line: #dce5e6;
+  --hairline: #e8eeee;
+  -webkit-font-smoothing: antialiased;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: 32px minmax(0, 1fr);
+  overflow: hidden;
+}
+h1, h2, h3, p, dl, dd { margin: 0; }
+button { font: inherit; color: inherit; }
+button:focus-visible { outline: 2px solid #087971; outline-offset: 2px; }
+::selection { background: #bde6dc; color: #163c35; }
+.symbols { position: absolute; width: 0; height: 0; overflow: hidden; }
+.titlebar {
+  z-index: 1;
+  display: flex;
+  background: #f9fbfb;
+  border-bottom: 1px solid #dbe3e4;
+  user-select: none;
+}
+.caption { flex: 1; min-width: 0; padding-left: 12px; display: flex; align-items: center; gap: 8px; }
+.caption span { font-size: 12px; font-weight: 600; color: #405861; }
+.window-controls { display: flex; }
+.window-controls button {
+  display: grid; place-items: center; width: 45px;
+  padding: 0; border: 0; background: transparent; color: #253e48;
+}
+.window-controls svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1; }
+.window-controls button:hover { background: #e3eaea; }
+.window-controls button:active { background: #d6e0df; }
+.window-controls button:focus-visible { outline-offset: -3px; }
+#win-close:hover { color: white; background: #c42b39; }
+#win-close:active { color: white; background: #a51e2a; }
+
+.viewport { overflow: auto; scrollbar-color: #b8c9c9 transparent; }
+.shell { max-width: 1552px; margin-inline: auto; padding: 0 clamp(20px, 3.6vw, 62px) 36px; }
+.intro, .intro-identity, .actions, .readout, .machine, .state, .log-actions, .log-heading, .section-head {
+  display: flex; align-items: center;
+}
+.intro { justify-content: space-between; gap: 24px; padding: 24px 0 22px; }
+.intro-identity { gap: 18px; min-width: 0; }
+.intro-identity > div { min-width: 0; }
+.device-art { flex: none; width: 93px; height: 72px; }
+h1 { color: var(--ink); font-size: clamp(26px, 2.4vw, 35px); font-weight: 680; line-height: 1.25; letter-spacing: -.045em; }
+.readout { flex-wrap: wrap; gap: 4px 14px; margin-top: 7px; font-size: 12px; line-height: 1.6; color: var(--muted); }
+.machine { gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.machine b { font-weight: 610; color: #39545e; }
+.machine svg, .actions svg, .log-panel svg {
+  width: 16px; height: 16px; flex: none;
+  fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round;
+}
+.machine svg { width: 14px; height: 14px; }
+.state { gap: 6px; }
+.state i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: #49836f; }
+.state[data-state=busy] i { background: #367ea4; }
+.state[data-state=warning] i { background: #ae721b; }
+.updated { font-variant-numeric: tabular-nums; }
+.actions, .log-actions { gap: 8px; flex-wrap: wrap; }
+.actions { flex: none; }
+.actions button, .log-actions button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 35px; padding: 7px 13px; border: 1px solid #cbd8d9; border-radius: 7px;
+  background: #fff; font-size: 13px; font-weight: 560; line-height: 1.35;
+  white-space: nowrap; user-select: none; cursor: pointer;
+}
+.actions button:hover:enabled, .log-actions button:hover:enabled { background: #f0f7f5; border-color: #96b5af; }
+.actions button:active:enabled, .log-actions button:active:enabled { background: #e4eeec; }
+.actions .primary { background: var(--teal); border-color: var(--teal); color: #fff; }
+.actions .primary:hover:enabled { background: #07594f; border-color: #07594f; }
+.actions .primary:active:enabled { background: #064c44; }
+.actions button:disabled, .log-actions button:disabled { opacity: .55; cursor: default; }
+
+.sheet {
+  display: grid;
+  grid-template-columns: minmax(0, 1.32fr) minmax(0, 1fr);
+  border: 1px solid #d6e1e1; border-radius: 13px; overflow: hidden;
+  background: #fff; box-shadow: 0 3px 14px #203e4407;
+}
+.sheet-column { min-width: 0; padding: 0 clamp(18px, 2.1vw, 34px) 12px; }
+.sheet-column.side { border-left: 1px solid var(--line); background: linear-gradient(125deg, #f7faf9, #fbfcfc 58%); }
+.section { min-width: 0; padding: 17px 0 18px; }
+.section + .section { border-top: 1px solid var(--line); }
+.section-head { gap: 9px; margin-bottom: 9px; }
+.section-icon { width: 37px; height: 29px; flex: none; object-fit: contain; }
+h2 { color: var(--ink); font-size: 18px; line-height: 1.4; font-weight: 665; letter-spacing: -.025em; }
+.field {
+  display: grid; grid-template-columns: clamp(88px, 9vw, 144px) minmax(0, 1fr);
+  align-items: baseline; gap: 14px; padding: 9px 2px; border-top: 1px solid var(--hairline);
+}
+.field:first-child { border-top: 0; }
+.field dt { color: var(--muted); font-size: 13px; }
+.hardware .field dt { display: flex; align-items: center; gap: 8px; }
+.field-icon, .os-symbol { width: 25px; height: 20px; flex: none; }
+.os-symbol {
+  background:
+    linear-gradient(#6da1bd 0 0) 5px 4px / 6px 5px,
+    linear-gradient(#78aeca 0 0) 12px 4px / 6px 5px,
+    linear-gradient(#78aeca 0 0) 5px 10px / 6px 5px,
+    linear-gradient(#6da1bd 0 0) 12px 10px / 6px 5px;
+  background-repeat: no-repeat;
+}
+.field dd, .standalone { font-size: 14px; line-height: 1.56; }
+.field dd, .standalone, .log-panel p, #diagnostic-text { white-space: pre-line; overflow-wrap: anywhere; }
+.hardware .field dd { font-weight: 530; }
+.side .field { grid-template-columns: clamp(70px, 7.1vw, 106px) minmax(0, 1fr); }
+.identity dd { font: 13px/1.6 Consolas, "Microsoft YaHei UI", monospace; overflow-wrap: anywhere; }
+.pending, .unavailable { color: #667980; }
+.power-summary {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  border-left: 3px solid #70af9d; border-radius: 2px 6px 6px 2px;
+  padding: 12px 16px; background: #eaf4f0;
+}
+.power-status { display: flex; flex-direction: column; gap: 2px; }
+.power-status strong { color: #214f46; font-size: 16px; font-weight: 650; }
+.power-status span, .runtime { color: #42685e; font-size: 13px; }
+.charge { color: #196354; font-size: 30px; line-height: 1; font-weight: 620; font-variant-numeric: tabular-nums; }
+.charge small { margin-left: 2px; font-size: 15px; }
+.charge-meter { grid-column: 1 / -1; width: 100%; height: 6px; border: 0; appearance: none; background: none; }
+.charge-meter::-webkit-meter-bar { height: 6px; border: 0; border-radius: 6px; background: #cedfd8; }
+.charge-meter::-webkit-meter-optimum-value { border-radius: 6px; background: #34957c; }
+.runtime { grid-column: 1 / -1; }
+.pack { margin-top: 14px; }
+.pack + .pack { padding-top: 12px; border-top: 1px solid var(--line); }
+h3 { font-size: 15px; line-height: 1.4; font-weight: 640; color: var(--ink); overflow-wrap: anywhere; }
+.pack h3 { margin-bottom: 5px; }
+.pack-fields > div { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; padding: 3px 0; }
+.pack-fields dt, .drive-metrics dt { color: var(--muted); font-size: 12px; }
+.pack-fields dd, .drive-metrics dd { font-variant-numeric: tabular-nums; font-size: 13px; }
+.drive { padding: 4px 2px; }
+.drive + .drive { margin-top: 12px; padding-top: 13px; border-top: 1px solid var(--hairline); }
+.drive-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 9px; }
+.capacity { font-size: 12px; color: #446976; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.protocol { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.drive-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 12px; margin-top: 9px; }
+.drive-metrics dd { color: #294752; font-weight: 580; }
+
+.log-panel, #diagnostics { border: 1px solid #cbded9; border-radius: 9px; background: #f5fbf8; padding: 13px 17px; }
+.log-panel { margin-bottom: 15px; }
+.log-line { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.log-heading { color: #25604e; gap: 8px; font-size: 14px; }
+.log-actions button { min-height: 29px; padding: 4px 10px; font-size: 12px; }
+.log-panel p, #diagnostic-text { font-size: 13px; line-height: 1.6; color: var(--muted); margin-top: 5px; }
+.log-panel progress { width: 100%; display: block; height: 5px; margin-top: 10px; accent-color: var(--teal); }
+#diagnostics { margin-top: 14px; border-color: #e5dfcf; background: #fbf9f2; }
+#diagnostics h2 { font-size: 14px; color: #745b33; }
+#toast {
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 5;
+  max-width: min(85vw, 480px); padding: 9px 16px; overflow-wrap: anywhere; border: 1px solid #b8d0c8;
+  border-radius: 8px; color: #254f42; background: #f5fcf9; box-shadow: 0 3px 16px #15392a21; font-size: 13px;
+}
+@media (max-width: 1000px) {
+  .shell { padding-inline: 20px; }
+  .intro { gap: 12px; }
+  .intro-identity { gap: 12px; }
+  .device-art { width: 70px; height: 58px; }
+  .sheet-column { padding-inline: 18px; }
+  .field { gap: 10px; }
+}
+@media (max-width: 780px) {
+  .intro { align-items: flex-start; flex-direction: column; gap: 11px; padding: 15px 0; }
+  .device-art { width: 60px; height: 48px; }
+  .readout { margin-top: 3px; }
+  .sheet { display: flex; flex-direction: column; padding: 0 18px; }
+  .sheet-column, .sheet-column.side { display: contents; }
+  .section { padding: 13px 0; border-bottom: 1px solid var(--line); }
+  .section + .section { border-top: 0; }
+  .hardware { order: 1; } .power { order: 2; } .storage { order: 3; }
+  .network { order: 4; } .firmware { order: 5; } .identity { order: 6; border-bottom: 0; }
+  .field, .side .field { grid-template-columns: 98px minmax(0, 1fr); }
+}
+@media (max-width: 460px) {
+  .shell { padding: 0 10px 18px; }
+  .sheet { padding-inline: 12px; border-radius: 9px; }
+  .intro-identity { gap: 8px; }
+  .device-art { width: 46px; height: 42px; }
+  .readout { gap: 1px 9px; }
+  .field, .side .field { grid-template-columns: 76px minmax(0, 1fr); gap: 8px; }
+  .hardware .field dt { gap: 4px; }
+  .field-icon, .os-symbol { width: 21px; }
+  .drive-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .actions { gap: 6px; }
+  .actions button { padding-inline: 10px; }
+}
+@media (forced-colors: active) {
+  .window-controls svg, .actions svg { stroke: ButtonText; }
+  .state i { background: CanvasText; }
+  .charge-meter { appearance: auto; }
+}

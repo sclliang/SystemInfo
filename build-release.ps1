@@ -1,22 +1,40 @@
 #Requires -Version 5.1
 [CmdletBinding()]
-param([string]$FluentUISdk = (Join-Path $PSScriptRoot '..\FluentUI\sdk'))
+param()
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$buildDirectory = Join-Path $PSScriptRoot 'build\x64'
-$packageDirectory = Join-Path $PSScriptRoot 'package'
-& cmake -S $PSScriptRoot -B $buildDirectory -G 'Visual Studio 18 2026' -A x64 "-DSYSTEMINFO_FLUENTUI_SDK=$FluentUISdk" -DSYSTEMINFO_REQUIRE_ADMIN=ON
-if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
-& cmake --build $buildDirectory --config Release --parallel
-if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
-& ctest --test-dir $buildDirectory -C Release --output-on-failure
-if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
-& cmake --install $buildDirectory --config Release --prefix $packageDirectory
-if ($LASTEXITCODE -ne 0) { throw 'Package failed.' }
-$version = (Get-Item -LiteralPath (Join-Path $packageDirectory 'SystemInfo.exe')).VersionInfo
-if ($version.CompanyName -cne 'sixunited' -or $version.LegalCopyright -cne 'Copyright (c) 2026 sixunited. Author: sclliang') {
-    throw 'Executable metadata mismatch.'
+$nativeBuild = Join-Path $PSScriptRoot 'build\native'
+$cargoTarget = Join-Path $PSScriptRoot 'build\tauri'
+$package = Join-Path $PSScriptRoot 'package'
+$exe = Join-Path $cargoTarget 'release\SystemInfo.exe'
+$previousTarget = $env:CARGO_TARGET_DIR
+$previousNative = $env:SYSTEMINFO_NATIVE_LIB_DIR
+Push-Location -LiteralPath $PSScriptRoot
+try {
+    & cmake -S . -B $nativeBuild -G 'Visual Studio 18 2026' -A x64 -DBUILD_TESTING=ON -DSYSTEMINFO_BUILD_CLASSIC=OFF "-DSYSTEMINFO_TAURI_BINARY=$exe"
+    if ($LASTEXITCODE) { throw 'Native configuration failed.' }
+    & cmake --build $nativeBuild --config Release --parallel
+    if ($LASTEXITCODE) { throw 'Native build failed.' }
+    $env:CARGO_TARGET_DIR = $cargoTarget
+    $env:SYSTEMINFO_NATIVE_LIB_DIR = Join-Path $nativeBuild 'Release'
+    & cargo build --release --locked --manifest-path src-tauri/Cargo.toml
+    if ($LASTEXITCODE) { throw 'Tauri release build failed.' }
+    & ctest --test-dir $nativeBuild -C Release --output-on-failure
+    if ($LASTEXITCODE) { throw 'Native or embedded-resource tests failed.' }
+    & node --test tests/DashboardModel.test.mjs
+    if ($LASTEXITCODE) { throw 'Dashboard data-contract tests failed.' }
+    $info = (Get-Item -LiteralPath $exe).VersionInfo
+    if ($info.CompanyName -cne 'sixunited' -or $info.LegalCopyright -cne 'Copyright (c) 2026 sixunited. Author: sclliang') {
+        throw 'Executable metadata mismatch.'
+    }
+    & cmake --install $nativeBuild --config Release --prefix $package
+    if ($LASTEXITCODE) { throw 'Package failed.' }
+    & node scripts/rust-notices.mjs (Join-Path $package 'THIRD_PARTY_NOTICES.md')
+    if ($LASTEXITCODE) { throw 'Could not build third-party notices.' }
+    Write-Host ('Built: ' + (Join-Path $package 'SystemInfo.exe'))
 }
-Copy-Item -LiteralPath (Join-Path $FluentUISdk 'share\FluentUI\THIRD_PARTY_NOTICES.md') -Destination (Join-Path $packageDirectory 'THIRD_PARTY_NOTICES.md')
-Copy-Item -LiteralPath (Join-Path $FluentUISdk 'share\FluentUI\licenses') -Destination $packageDirectory -Recurse -Force
-Write-Host "Built: $(Join-Path $packageDirectory 'SystemInfo.exe')"
+finally {
+    $env:CARGO_TARGET_DIR = $previousTarget
+    $env:SYSTEMINFO_NATIVE_LIB_DIR = $previousNative
+    Pop-Location
+}

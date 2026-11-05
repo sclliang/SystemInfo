@@ -9,7 +9,7 @@
 | HardwareInfo.cpp | `1CDA584039667B55188256FB79F336BD5546F5A69E48E34E7FBD0209673684B4` |
 | HardwareInfo.h | `F94E2AF2333F32AF1ACC0810DB558C3DEDBAC214FF418ED91BF04D73743D3102` |
 
-界面按九张卡片排布；采集结果和复制报告仍按参考程序原来的 16 项顺序输出。根据用户后续要求，主板型号、BIOS、EC、主板 SN、系统 SN、UUID 优先由内嵌 AMIDEWIN 读取，以下对应方式作为回退；其他字段保持下表方式。详见 [AMI 固件优先采集](ami-firmware.md)。
+界面按硬件、SSD、网络、电池、固件和设备标识分区，在单页展开。报告按参考程序的顺序输出原有 16 项，再附上电池信息。主板型号、BIOS、EC、主板 SN、系统 SN 和 UUID 优先由内嵌 AMIDEWIN 读取，缺失字段使用下表中的回退来源。详见 [AMI 固件优先采集](ami-firmware.md)。
 
 | 字段 | 保留的获取方式 |
 | --- | --- |
@@ -29,6 +29,7 @@
 | 无线网卡 | `Win32_NetworkAdapter`，保留无线名称判断和 MAC 格式 |
 | 蓝牙地址 | `Win32_NetworkAdapter`，保留原蓝牙识别与物理属性条件 |
 | TPM型号 | `ROOT/CIMV2/Security/MicrosoftTpm` 下的 `Win32_Tpm` |
+| 电池信息 | `GetSystemPowerStatus` 提供系统供电、电量和预计续航。用 SetupAPI 枚举电池接口，按电池标签查询设备信息和实时容量。驱动提供设计容量和满充容量时计算健康度。参考 [Windows 电池枚举](https://learn.microsoft.com/en-us/windows/win32/power/enumerating-battery-devices) 和 [电池信息结构](https://learn.microsoft.com/en-us/windows/win32/power/battery-information-str)。 |
 
 上表前的哈希记录初次复制时的基线。1.4 从基本采集工作线程移除了旧磁盘查询，改由 SSD 工作线程补齐同一行。容量按十进制 GB/TB 显示，NVMe 累计读写量按健康日志计数乘 512000 字节后换算为 GiB/TiB。ATA 主机读写计数采用参考模块的厂商归一化值。未取得的指标显示 `N/A`。
 
