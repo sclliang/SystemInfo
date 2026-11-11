@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<project outputDir="confused" baseDir="." xmlns="http://confuser.codeplex.com">
+  <!-- Only application logic is renamed. Keep XAML/BAML, bindings, JSON
+       contracts, native delegates, resource names and the Costura loader. -->
+  <rule pattern="true" preset="none" inherit="false">
+    <protection id="constants" />
+  </rule>
+  <rule pattern="namespace('SystemInfo.Logic')" preset="none" inherit="false">
+    <protection id="rename">
+      <argument name="mode" value="letters" />
+      <argument name="renPublic" value="false" />
+    </protection>
+    <protection id="constants" />
+  </rule>
+  <rule pattern="namespace('Costura') or namespace('SystemInfo.Interop') or namespace('SystemInfo.Models') or namespace('SystemInfo.ViewModels') or namespace('SystemInfo.Controls') or match('^SystemInfo\.(App|MainWindow)') or full-name('&lt;Module&gt;')" preset="none" inherit="false" />
+</project>

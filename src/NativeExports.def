@@ -1,0 +1,8 @@
+LIBRARY SystemInfo.Native
+EXPORTS
+    si_new
+    si_drop
+    si_action
+    si_poll
+    si_export
+    si_position

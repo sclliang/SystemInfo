@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(SystemInfo VERSION 2.1.1.0 LANGUAGES CXX RC)
+project(SystemInfo VERSION 3.0.0.0 LANGUAGES CXX RC)
 
 if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "SystemInfo requires Windows, MSVC and x64 (configure with -A x64).")
@@ -18,10 +18,8 @@ if(SYSTEMINFO_REQUIRE_ADMIN)
 else()
     set(SYSTEMINFO_EXECUTION_LEVEL "asInvoker")
 endif()
-set(SYSTEMINFO_FLUENTUI_SDK "${CMAKE_CURRENT_SOURCE_DIR}/../FluentUI/sdk"
-    CACHE PATH "Local native Win32 FluentUI SDK")
-option(SYSTEMINFO_BUILD_CLASSIC "Also build the original FluentUI development host" OFF)
-set(SYSTEMINFO_TAURI_BINARY "" CACHE FILEPATH "Tauri release executable to verify and install")
+set(SYSTEMINFO_RELEASE_BINARY "${CMAKE_CURRENT_SOURCE_DIR}/build/wpf/Release/net48/SystemInfo.exe"
+    CACHE FILEPATH "Packaged WPF executable to verify")
 
 function(systeminfo_compile_settings target)
     target_compile_definitions(${target} PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN
@@ -87,17 +85,29 @@ systeminfo_compile_settings(SystemInfoBridge)
 target_compile_definitions(SystemInfoBridge PRIVATE "SYSTEMINFO_VERSION=L\"${PROJECT_VERSION}\"")
 target_link_libraries(SystemInfoBridge PRIVATE AmiFirmware SsdInfo EventLogCollectorCore shell32 user32)
 
-if(SYSTEMINFO_BUILD_CLASSIC)
-    find_package(FluentUI 0.2 CONFIG REQUIRED HINTS "${SYSTEMINFO_FLUENTUI_SDK}")
-    add_executable(SystemInfo WIN32 src/main.cpp src/InformationView.cpp
-        "${CMAKE_CURRENT_BINARY_DIR}/app.rc" "${CMAKE_CURRENT_BINARY_DIR}/log-template.rc" resources/ami/resources.rc)
-    systeminfo_compile_settings(SystemInfo)
-    target_compile_definitions(SystemInfo PRIVATE "SYSTEMINFO_VERSION=L\"${PROJECT_VERSION}\"")
-    target_include_directories(SystemInfo PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/resources" "${AMI_RESOURCE_DIR}")
-    target_link_libraries(SystemInfo PRIVATE SystemInfoBridge fluent::FluentUI dwmapi)
-    target_link_options(SystemInfo PRIVATE /MANIFEST:NO /guard:cf /DYNAMICBASE /NXCOMPAT
-        "$<$<CONFIG:Release>:/LTCG;/OPT:REF;/OPT:ICF>")
-endif()
+configure_file(resources/native-version.rc.in "${CMAKE_CURRENT_BINARY_DIR}/native-version.rc" @ONLY)
+add_library(SystemInfoNative SHARED src/NativeExports.def "${CMAKE_CURRENT_BINARY_DIR}/native-version.rc")
+set_target_properties(SystemInfoNative PROPERTIES OUTPUT_NAME "SystemInfo.Native" LINKER_LANGUAGE CXX)
+target_link_libraries(SystemInfoNative PRIVATE SystemInfoBridge)
+target_link_options(SystemInfoNative PRIVATE /guard:cf /DYNAMICBASE /NXCOMPAT
+    "$<$<CONFIG:Release>:/LTCG;/OPT:REF;/OPT:ICF>")
+
+# C# /win32res embeds the original AMI binaries, icon, manifest, report and
+# exact version strings in the host EXE, where the native collectors find them.
+configure_file(resources/wpf-resources.rc.in "${CMAKE_CURRENT_BINARY_DIR}/wpf-resources.rc" @ONLY)
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/SystemInfo.Wpf.res"
+    COMMAND "${CMAKE_RC_COMPILER}" /nologo
+        /I "${CMAKE_CURRENT_BINARY_DIR}" /I "${CMAKE_CURRENT_SOURCE_DIR}/resources"
+        /fo "${CMAKE_CURRENT_BINARY_DIR}/SystemInfo.Wpf.res"
+        "${CMAKE_CURRENT_BINARY_DIR}/wpf-resources.rc"
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/wpf-resources.rc"
+        "${CMAKE_CURRENT_BINARY_DIR}/app.rc" "${CMAKE_CURRENT_BINARY_DIR}/app.manifest"
+        "${CMAKE_CURRENT_BINARY_DIR}/log-template.rc"
+        resources/SystemInfo.ico resources/eventlog/report.html
+        ${AMI_RESOURCE_DIR}/AMIDEWINx64.EXE ${AMI_RESOURCE_DIR}/amifldrv64.sys
+        ${AMI_RESOURCE_DIR}/amigendrv64.sys ${AMI_RESOURCE_DIR}/amifldrv32.sys
+    VERBATIM)
+add_custom_target(WpfResources ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/SystemInfo.Wpf.res")
 
 include(CTest)
 if(BUILD_TESTING)
@@ -124,10 +134,8 @@ if(BUILD_TESTING)
     target_link_libraries(AmiFirmwareTests PRIVATE AmiFirmware)
     add_test(NAME AmiFirmwareParsingAndFallback COMMAND AmiFirmwareTests)
     add_test(NAME AmiProcessAndDriverOwnership COMMAND AmiFirmwareTests --process)
-    if(SYSTEMINFO_TAURI_BINARY)
-        add_test(NAME EmbeddedAmiResources COMMAND AmiFirmwareTests --resources "${SYSTEMINFO_TAURI_BINARY}" "${AMI_RESOURCE_DIR}")
-    elseif(SYSTEMINFO_BUILD_CLASSIC)
-        add_test(NAME EmbeddedAmiResources COMMAND AmiFirmwareTests --resources "$<TARGET_FILE:SystemInfo>" "${AMI_RESOURCE_DIR}")
+    if(SYSTEMINFO_RELEASE_BINARY)
+        add_test(NAME EmbeddedAmiResources COMMAND AmiFirmwareTests --resources "${SYSTEMINFO_RELEASE_BINARY}" "${AMI_RESOURCE_DIR}")
     endif()
     set(SYSTEMINFO_TEST_NAME "SsdInfoTests")
     configure_file(resources/tests.rc.in "${CMAKE_CURRENT_BINARY_DIR}/ssd-tests.rc" @ONLY)
@@ -143,11 +151,15 @@ if(BUILD_TESTING)
     target_link_libraries(LogCollectionTests PRIVATE EventLogCollectorCore)
     add_test(NAME LogCollectionCancelAndRetry COMMAND LogCollectionTests)
     set_tests_properties(LogCollectionCancelAndRetry PROPERTIES TIMEOUT 60)
+
+    set(SYSTEMINFO_TEST_NAME "HostResourcesTests")
+    configure_file(resources/tests.rc.in "${CMAKE_CURRENT_BINARY_DIR}/host-tests.rc" @ONLY)
+    add_executable(HostResourcesTests tests/HostResourcesTests.cpp "${CMAKE_CURRENT_BINARY_DIR}/host-tests.rc")
+    systeminfo_compile_settings(HostResourcesTests)
+    target_link_libraries(HostResourcesTests PRIVATE version)
+    add_test(NAME WpfHostIconMetadataAndResources COMMAND HostResourcesTests
+        "${SYSTEMINFO_RELEASE_BINARY}" "${CMAKE_CURRENT_SOURCE_DIR}/resources")
 endif()
 
-if(SYSTEMINFO_TAURI_BINARY)
-    install(FILES "${SYSTEMINFO_TAURI_BINARY}" DESTINATION .)
-elseif(SYSTEMINFO_BUILD_CLASSIC)
-    install(TARGETS SystemInfo RUNTIME DESTINATION .)
-endif()
+install(FILES "${SYSTEMINFO_RELEASE_BINARY}" DESTINATION .)
 install(FILES "${ATA_CORE}/LICENSE.txt" DESTINATION licenses RENAME AtaSmartCore-LICENSE.txt)

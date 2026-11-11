@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <memory>
 
-// The Rust owner serializes these entry points. Slow reads stay on the
+// The WPF owner serializes these entry points. Slow reads stay on the
 // existing native workers. No STL object or exception crosses the C ABI.
 namespace
 {
@@ -161,7 +161,7 @@ extern "C" int si_action(void* ptr, unsigned action, HWND owner) noexcept
     catch (...) { return -1; }
 }
 
-// Borrowed UTF-8 until the next poll under the Rust mutex. Empty means no change.
+// Borrowed UTF-8 until the next poll. The owner copies it before another call.
 extern "C" const char* si_poll(void* ptr, std::uint64_t since) noexcept
 {
     try
