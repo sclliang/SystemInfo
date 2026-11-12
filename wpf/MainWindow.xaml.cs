@@ -118,7 +118,7 @@ namespace SystemInfo
                 encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 using (var file = File.Create(options.Snapshot)) encoder.Save(file);
                 if (bindingFailures.HasErrors) throw new InvalidOperationException("WPF 数据绑定错误：\n" + bindingFailures);
-                if (Sections.Items.Count != 6 || dashboard.Sections.Sum(section => section.Fields.Count) != 17)
+                if (Sections.Items.Count != 7 || dashboard.Sections.Sum(section => section.Fields.Count) != 19)
                     throw new InvalidOperationException("界面信息分区不完整。");
                 if (options.Smoke) VerifyAppearance();
                 if (!dashboard.Snapshot.Valid || options.SmokeLogs && !dashboard.Snapshot.Log.HasReport)
@@ -165,7 +165,7 @@ namespace SystemInfo
                 throw new InvalidOperationException("Windows 未启用云母背景。");
             File.WriteAllText(options.Snapshot + ".checks.txt",
                 "Theme=Light\r\nBackdrop=Mica\r\nDwmBackdrop=" + backdrop + "\r\nCloseHover=" + red +
-                "\r\nCloseHoverForeground=" + white + "\r\nColumnOrder=" + order + "\r\nFields=17\r\nBindingErrors=0\r\n", new UTF8Encoding(true));
+                "\r\nCloseHoverForeground=" + white + "\r\nColumnOrder=" + order + "\r\nFields=19\r\nBindingErrors=0\r\n", new UTF8Encoding(true));
         }
 
         private void ShowToast(string text)

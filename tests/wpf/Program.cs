@@ -38,11 +38,11 @@ internal static class Program
                 Check(snapshot.Revision == 42 && snapshot.Rows[0].Value == "CPU\r\n第二行", "JSON text changed");
                 Check(snapshot.Battery.Percent == 0 && snapshot.Battery.Packs[0].Fields[0].Value == "0", "Zero battery lost");
             });
-            Run("All 17 fields appear once across six sections", () =>
+            Run("All 19 fields appear once across seven sections", () =>
             {
                 var model = new Dashboard();
                 var fields = model.Sections.SelectMany(section => section.Fields).ToList();
-                Check(model.Sections.Count == 6 && fields.Count == 17 && fields.Select(field => field.Key).Distinct().Count() == 17, "Missing or duplicate field");
+                Check(model.Sections.Count == 7 && fields.Count == 19 && fields.Select(field => field.Key).Distinct().Count() == 19, "Missing or duplicate field");
                 Check(!model.CanRefresh && !model.CanCopy && !model.CanCollect, "Actions enabled before native session");
             });
             Run("SSD completes independently from basic hardware", () =>
@@ -50,22 +50,36 @@ internal static class Program
                 var snapshot = Basic(); snapshot.ComputerPending = true; snapshot.SsdPending = false;
                 snapshot.Rows = new List<Field> { new Field { Label = "SSD信息", Value = DiskText } };
                 var model = new Dashboard(); model.Update(snapshot);
-                Check(Storage(model).HasDrives && model.Sections[0].Fields[1].Value == "正在读取…", "SSD waits for hardware");
+                Check(Storage(model).Fields[0].Value == DiskText && model.Sections[0].Fields[1].Value == "正在读取…", "SSD waits for hardware");
                 snapshot = Basic(); snapshot.SsdPending = true; snapshot.Rows.RemoveAll(row => row.Label == "SSD信息"); model.Update(snapshot);
-                Check(model.CanCopy && !model.CanRefresh && model.Status.Contains("SSD") && !Storage(model).HasDrives, "Hardware waits for SSD");
+                Check(model.CanCopy && !model.CanRefresh && model.Status.Contains("SSD") && Storage(model).Fields[0].Value == "正在读取…", "Hardware waits for SSD");
             });
             Run("Refresh preserves previous values while pending", () =>
             {
                 var model = new Dashboard(); var snapshot = Basic(); model.Update(snapshot);
                 string cpu = model.Sections[0].Fields[1].Value;
                 snapshot.ComputerPending = snapshot.SsdPending = true; model.Update(snapshot);
-                Check(model.Sections[0].Fields[1].Value == cpu && Storage(model).HasDrives && !model.CanCopy && !model.CanRefresh, "Refresh erased usable values");
+                Check(model.Sections[0].Fields[1].Value == cpu && Storage(model).Fields[0].Value == DiskText && !model.CanCopy && !model.CanRefresh, "Refresh erased usable values");
             });
-            Run("Multi-drive parsing distinguishes zero and unavailable", () =>
+            Run("SSD names and nominal capacities stay on separate lines", () =>
             {
-                var drives = Drive.Parse(DiskText + "\r\n\r\nSSD-B\r\n2.00 TB  ·  SATA/600\r\n上电 N/A  ·  N/A 次\r\n累计读取 N/A  ·  写入 0.00 GiB\r\n设备说明");
-                Check(drives.Count == 2 && drives[0].Metrics[0].Value == "0 小时" && drives[0].Metrics[1].Value == "0 次", "Zero values changed");
-                Check(drives[1].Metrics[0].Value == "N/A" && drives[1].Metrics[3].Value == "0.00 GiB" && drives[1].Notes == "设备说明", "Unknown values or notes lost");
+                var model = new Dashboard(); var snapshot = Basic(); model.Update(snapshot);
+                Check(Storage(model).Fields.Count == 1 && Storage(model).Fields[0].Label == "固态硬盘"
+                    && Storage(model).Fields[0].Value == "SSD-A · 512 GB\r\nSSD-B · 1 TB", "Each SSD must keep its name and nominal capacity on its own line");
+                snapshot.Rows.Single(field => field.Label == "SSD信息").Value = "SSD-A · 512 GB\r\nSSD-B · N/A"; model.Update(snapshot);
+                Check(Storage(model).Fields[0].Value == "SSD-A · 512 GB\r\nSSD-B · N/A", "Unknown disk capacity was replaced or hidden");
+                snapshot.Rows.Single(field => field.Label == "SSD信息").Value = "未检测到内置 SSD"; model.Update(snapshot);
+                Check(Storage(model).Fields[0].Value == "未检测到内置 SSD", "No-SSD state was lost");
+            });
+            Run("Windows product ID and OEM key remain distinct in the readout", () =>
+            {
+                var model = new Dashboard(); var snapshot = Basic();
+                snapshot.Rows.Single(row => row.Label == "Windows OEM 密钥").Value = "TEST-OEM-KEY";
+                snapshot.Rows.Single(row => row.Label == "Windows 产品 ID").Value = "TEST-PRODUCT-ID";
+                model.Update(snapshot);
+                var windows = model.Sections.Single(section => section.Kind == "windows");
+                Check(windows.Fields.Single(field => field.Key == "Windows OEM 密钥").Value == "TEST-OEM-KEY" &&
+                    windows.Fields.Single(field => field.Key == "Windows 产品 ID").Value == "TEST-PRODUCT-ID", "Product ID and OEM key were swapped or omitted");
             });
             Run("Unknown battery differs from zero charge", () =>
             {
@@ -99,7 +113,7 @@ internal static class Program
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
     }
-    private const string DiskText = "SSD-A\r\n1.00 TB  ·  NVMe · PCIe 4.0 x4\r\n上电 0 小时  ·  0 次\r\n累计读取 0.00 GiB  ·  写入 N/A";
+    private const string DiskText = "SSD-A · 512 GB\r\nSSD-B · 1 TB";
     private static Section Storage(Dashboard model) => model.Sections.Single(section => section.Kind == "storage");
     private static Snapshot Basic()
     {

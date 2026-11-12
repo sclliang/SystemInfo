@@ -47,8 +47,8 @@ try {
     }
     Invoke-Checked 'cmake' @('--install', $nativeBuild, '--config', 'Release', '--prefix', $packageDir)
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'docs\THIRD_PARTY_NOTICES.md') -Destination $packageDir -Force
-    $zipPath = Join-Path $packageDir 'SystemInfo-3.0.0-win-x64.zip'
-    Compress-Archive -LiteralPath (Join-Path $packageDir 'SystemInfo.exe'), (Join-Path $packageDir 'THIRD_PARTY_NOTICES.md'), (Join-Path $packageDir 'licenses') -DestinationPath $zipPath -Force
+    $zipPath = Join-Path $packageDir 'SystemInfo-3.0.3-win-x64.zip'
+    Compress-Archive -LiteralPath (Join-Path $packageDir 'SystemInfo.exe'), (Join-Path $packageDir 'THIRD_PARTY_NOTICES.md') -DestinationPath $zipPath -Force
     Write-Host ('Built and verified: ' + (Join-Path $packageDir 'SystemInfo.exe'))
     Write-Host ('Portable ZIP: ' + $zipPath)
 }

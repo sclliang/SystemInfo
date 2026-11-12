@@ -1,5 +1,6 @@
 #include "DiagnosticReport.h"
 #include "Report.h"
+#include "WindowsLicense.h"
 #include "firmware/AmiFirmware.h"
 #include "storage/SsdInfo.h"
 
@@ -32,9 +33,9 @@ int WriteDiagnosticReport(const std::filesystem::path& path, bool amiOnly)
     {
         try
         {
-            auto snapshot = system_info::firmware::CollectComputerInfo();
+            auto snapshot = system_info::CollectSystemInfo();
             try { system_info::storage::ApplySsdInfo(snapshot, system_info::storage::CollectSsdInfo()); }
-            catch (...) { system_info::storage::ApplySsdInfo(snapshot, {L"N/A", L"SSD SMART 读取失败。"}); }
+            catch (...) { system_info::storage::ApplySsdInfo(snapshot, {L"N/A", L"SSD 名称与容量读取失败。"}); }
             if (!system_info::WriteReport(path, snapshot)) return 3;
             return snapshot.error.empty() ? 0 : 1;
         }

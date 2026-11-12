@@ -34,7 +34,7 @@ bool Collection::Start(ComputerReader computer, SsdReader ssd)
         ssdWorker_ = std::jthread([this, read = std::move(ssd)](std::stop_token token) {
             storage::SsdResult result;
             try { result = read(token); }
-            catch (...) { result = {L"N/A", L"SSD SMART 读取失败，请刷新重试。"}; }
+            catch (...) { result = {L"N/A", L"SSD 名称与容量读取失败，请刷新重试。"}; }
             if (token.stop_requested()) return;
             std::lock_guard guard(mutex_);
             ssd_ = std::move(result);
@@ -60,7 +60,7 @@ std::optional<CollectionUpdate> Collection::Take()
     update.ssdPending = !ssd_;
     if (computer_) update.snapshot = *computer_;
     if (ssd_) storage::ApplySsdInfo(update.snapshot, *ssd_);
-    else storage::ApplySsdInfo(update.snapshot, {L"正在读取 SSD SMART…", {}});
+    else storage::ApplySsdInfo(update.snapshot, {L"正在读取 SSD 名称与容量…", {}});
     busy_ = !update.Complete();
     return update;
 }

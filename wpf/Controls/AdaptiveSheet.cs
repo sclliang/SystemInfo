@@ -8,7 +8,7 @@ namespace SystemInfo.Controls
     // own vertical flow on desktop. No controls or selections are recreated.
     internal sealed class AdaptiveSheet : Panel
     {
-        private const double Gap = 18;
+        private const double Gap = 30;
         private bool Wide(double width) => width >= 830;
         private int Column(UIElement child) => (child as FrameworkElement)?.Tag is int column ? column : 0;
 

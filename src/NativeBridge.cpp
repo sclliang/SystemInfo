@@ -3,7 +3,7 @@
 #include "LogCollection.h"
 #include "Report.h"
 #include "WindowPlacement.h"
-#include "firmware/AmiFirmware.h"
+#include "WindowsLicense.h"
 #include <shellapi.h>
 #include <cstdint>
 #include <memory>
@@ -59,7 +59,7 @@ struct Session
 
     bool Refresh()
     {
-        if (!hardware.Start(firmware::CollectComputerInfo, storage::CollectSsdInfo)) return false;
+        if (!hardware.Start(CollectSystemInfo, storage::CollectSsdInfo)) return false;
         info.computerPending = info.ssdPending = true;
         ++revision;
         return true;

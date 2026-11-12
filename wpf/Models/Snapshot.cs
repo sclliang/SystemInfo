@@ -22,9 +22,11 @@ namespace SystemInfo.Models
         [DataMember(Name = "battery")] public Battery Battery { get; set; }
         [DataMember(Name = "log")] public LogStatus Log { get; set; }
         public bool Complete => !ComputerPending && !SsdPending;
-        public bool Valid => Complete && string.IsNullOrEmpty(Error) && Rows?.Count == 17
-            && Rows.Select(row => row.Label).Distinct().Count() == 17
-            && Rows.Any(row => row.Label == "电池信息") && Battery?.Packs != null;
+        public bool Valid => Complete && string.IsNullOrEmpty(Error) && Rows?.Count == 19
+            && Rows.Select(row => row.Label).Distinct().Count() == 19
+            && Rows.Any(row => row.Label == "电池信息") && Battery?.Packs != null
+            && Rows.Any(row => row.Label == "Windows OEM 密钥")
+            && Rows.Any(row => row.Label == "Windows 产品 ID");
 
         public static Snapshot Parse(string json)
         {

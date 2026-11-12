@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(SystemInfo VERSION 3.0.0.0 LANGUAGES CXX RC)
+project(SystemInfo VERSION 3.0.3.0 LANGUAGES CXX RC)
 
 if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "SystemInfo requires Windows, MSVC and x64 (configure with -A x64).")
@@ -32,21 +32,9 @@ add_library(HardwareInfo STATIC src/hardware_info/HardwareInfo.cpp src/power/Bat
 systeminfo_compile_settings(HardwareInfo)
 target_link_libraries(HardwareInfo PRIVATE advapi32 ole32 oleaut32 setupapi wbemuuid)
 
-set(ATA_CORE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/AtaSmartCore")
-add_library(AtaSmartCore STATIC
-    "${ATA_CORE}/AtaSmart.cpp" "${ATA_CORE}/NVMeInterpreter.cpp" "${ATA_CORE}/SlotSpeedGetter.cpp"
-    "${ATA_CORE}/Priscilla/md5.cpp" "${ATA_CORE}/Priscilla/OsInfoFx.cpp" "${ATA_CORE}/Priscilla/UtilityFx.cpp")
-set_target_properties(AtaSmartCore PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED YES)
-target_compile_definitions(AtaSmartCore PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_compile_options(AtaSmartCore PRIVATE /W0 /EHsc /utf-8 /guard:cf)
-target_include_directories(AtaSmartCore PRIVATE "${ATA_CORE}" "${ATA_CORE}/Priscilla")
-target_link_libraries(AtaSmartCore PRIVATE advapi32 comsuppw setupapi shlwapi)
-
-add_library(SsdInfo STATIC src/storage/DiskCollector.cpp src/storage/Smart.cpp
-    src/storage/Wmi.cpp src/storage/SsdInfo.cpp)
+add_library(SsdInfo STATIC src/storage/DiskCollector.cpp src/storage/Wmi.cpp src/storage/SsdInfo.cpp)
 systeminfo_compile_settings(SsdInfo)
-target_include_directories(SsdInfo PRIVATE "${ATA_CORE}" "${ATA_CORE}/Priscilla")
-target_link_libraries(SsdInfo PRIVATE AtaSmartCore cfgmgr32 ole32 oleaut32 wbemuuid)
+target_link_libraries(SsdInfo PRIVATE cfgmgr32 ole32 oleaut32 wbemuuid)
 
 add_library(EventLogCollectorCore STATIC
     src/eventlog/Collector.cpp src/eventlog/Diagnostics.cpp src/eventlog/EventLogService.cpp
@@ -80,7 +68,7 @@ configure_file(resources/app.rc.in "${CMAKE_CURRENT_BINARY_DIR}/app.rc" @ONLY)
 configure_file(resources/log-template.rc.in "${CMAKE_CURRENT_BINARY_DIR}/log-template.rc" @ONLY)
 configure_file(resources/app.manifest.in "${CMAKE_CURRENT_BINARY_DIR}/app.manifest" @ONLY)
 add_library(SystemInfoBridge STATIC src/NativeBridge.cpp src/DiagnosticReport.cpp src/Report.cpp
-    src/Collection.cpp src/LogCollection.cpp)
+    src/Collection.cpp src/LogCollection.cpp src/WindowsLicense.cpp)
 systeminfo_compile_settings(SystemInfoBridge)
 target_compile_definitions(SystemInfoBridge PRIVATE "SYSTEMINFO_VERSION=L\"${PROJECT_VERSION}\"")
 target_link_libraries(SystemInfoBridge PRIVATE AmiFirmware SsdInfo EventLogCollectorCore shell32 user32)
@@ -142,7 +130,7 @@ if(BUILD_TESTING)
     add_executable(SsdInfoTests tests/SsdInfoTests.cpp src/Collection.cpp "${CMAKE_CURRENT_BINARY_DIR}/ssd-tests.rc")
     systeminfo_compile_settings(SsdInfoTests)
     target_link_libraries(SsdInfoTests PRIVATE SsdInfo)
-    add_test(NAME SsdSmartAndProgress COMMAND SsdInfoTests)
+    add_test(NAME SsdInventoryAndProgress COMMAND SsdInfoTests)
     set(SYSTEMINFO_TEST_NAME "LogCollectionTests")
     configure_file(resources/tests.rc.in "${CMAKE_CURRENT_BINARY_DIR}/log-tests.rc" @ONLY)
     add_executable(LogCollectionTests tests/LogCollectionTests.cpp src/LogCollection.cpp
@@ -159,7 +147,13 @@ if(BUILD_TESTING)
     target_link_libraries(HostResourcesTests PRIVATE version)
     add_test(NAME WpfHostIconMetadataAndResources COMMAND HostResourcesTests
         "${SYSTEMINFO_RELEASE_BINARY}" "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+
+    set(SYSTEMINFO_TEST_NAME "WindowsLicenseTests")
+    configure_file(resources/tests.rc.in "${CMAKE_CURRENT_BINARY_DIR}/license-tests.rc" @ONLY)
+    add_executable(WindowsLicenseTests tests/WindowsLicenseTests.cpp "${CMAKE_CURRENT_BINARY_DIR}/license-tests.rc")
+    systeminfo_compile_settings(WindowsLicenseTests)
+    target_link_libraries(WindowsLicenseTests PRIVATE SystemInfoBridge)
+    add_test(NAME WindowsLicenseFields COMMAND WindowsLicenseTests)
 endif()
 
 install(FILES "${SYSTEMINFO_RELEASE_BINARY}" DESTINATION .)
-install(FILES "${ATA_CORE}/LICENSE.txt" DESTINATION licenses RENAME AtaSmartCore-LICENSE.txt)

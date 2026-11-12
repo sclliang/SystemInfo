@@ -9,9 +9,9 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>SystemInfo</AssemblyName>
     <RootNamespace>SystemInfo</RootNamespace>
-    <Version>3.0.0</Version>
-    <AssemblyVersion>3.0.0.0</AssemblyVersion>
-    <FileVersion>3.0.0.0</FileVersion>
+    <Version>3.0.3</Version>
+    <AssemblyVersion>3.0.3.0</AssemblyVersion>
+    <FileVersion>3.0.3.0</FileVersion>
     <Authors>sclliang</Authors>
     <Company>sixunited</Company>
     <Copyright>Copyright (c) 2026 sixunited. Author: sclliang</Copyright>
@@ -37,6 +37,7 @@
     <Reference Include="System.Runtime.Serialization" />
     <EmbeddedResource Include="$(NativeBuildDir)\$(Configuration)\SystemInfo.Native.dll" LogicalName="SystemInfo.Native.dll" />
     <Resource Include="..\resources\SystemInfo.ico" Link="Assets\SystemInfo.ico" />
+    <Resource Include="..\resources\SystemInfo.png" Link="Assets\SystemInfo.png" />
   </ItemGroup>
   <Target Name="BuildNativeCore" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipNativeBuild)' != 'true'">
     <Exec Command="cmake -S &quot;$(MSBuildThisFileDirectory)..&quot; -B &quot;$(NativeBuildDir)&quot; -A x64 -DBUILD_TESTING=ON -DSYSTEMINFO_REQUIRE_ADMIN=ON" />

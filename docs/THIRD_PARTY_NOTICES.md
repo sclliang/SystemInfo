@@ -4,11 +4,11 @@
 - Fody 6.9.3 and Costura.Fody 6.2.0 — MIT. Copyright Simon Cropp and contributors. <https://github.com/Fody/Fody>, <https://github.com/Fody/Costura>
 - ConfuserEx / Confuser.MSBuild 1.6.0 — MIT. Copyright Ki and Martin Karing. Build tool. <https://github.com/mkaring/ConfuserEx>
 - System.Memory 4.6.3, System.Buffers 4.6.1, System.Numerics.Vectors 4.6.1, System.Runtime.CompilerServices.Unsafe 6.1.2 — MIT. Copyright .NET Foundation and Contributors. <https://github.com/dotnet/runtime>
-- AtaSmartCore — MIT. Copyright (C) 2007-2025 hiyohiyo. See `licenses/AtaSmartCore-LICENSE.txt` and the source provenance file.
+- Microsoft Fluent System Icons — MIT. Copyright (c) 2020 Microsoft Corporation. The application icon uses the Desktop Pulse regular glyph with an application-specific blue gradient background. <https://github.com/microsoft/fluentui-system-icons>
 
 AMI vendor utilities and drivers are preserved byte for byte from the supplied project and retain their original ownership and terms.
 
-The application icon is the system Documents folder icon extracted from Windows `imageres.dll`, group 112, as configured in the Documents folder's `desktop.ini`. Windows resources retain their original ownership and terms.
+The approved application icon master is `resources/SystemInfo.png`; `scripts/generate-icon.py` derives the eight-size ICO resource. The icon artwork is based on Microsoft Fluent System Icons and retains the MIT terms below.
 
 ## MIT license
 

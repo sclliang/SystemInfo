@@ -1,32 +1,23 @@
 #include "SsdInfo.h"
 #include "Disk.h"
 #include <algorithm>
-#include <format>
 
 namespace system_info::storage
 {
 namespace
 {
-std::wstring Capacity(const std::optional<std::uint64_t> bytes)
+std::wstring NominalCapacity(const std::optional<std::uint64_t> bytes)
 {
     if (!bytes || !*bytes) return L"N/A";
-    if (*bytes >= 1'000'000'000'000ULL)
-        return std::format(L"{:.2f} TB", *bytes / 1.0e12L);
-    return std::format(L"{:.2f} GB", *bytes / 1.0e9L);
-}
-
-std::wstring Traffic(const std::optional<long double> gib)
-{
-    if (!gib) return L"N/A";
-    return *gib >= 1024.0L ? std::format(L"{:.2f} TiB", *gib / 1024.0L) : std::format(L"{:.2f} GiB", *gib);
-}
-
-std::wstring Protocol(const Disk& disk)
-{
-    if (disk.isNvme)
-        return disk.transferMode.empty() ? L"NVMe" : L"NVMe · " + disk.transferMode;
-    if (!disk.transferMode.empty()) return disk.transferMode;
-    return disk.protocol.empty() ? L"N/A" : disk.protocol;
+    // The compact readout uses common capacity tiers, rather than a physical
+    // device's decimal byte count: 500.x GB -> 512 GB, 1.02 TB -> 1 TB.
+    // Divide before rounding so even the largest uint64_t cannot overflow.
+    constexpr std::uint64_t gib = 1ULL << 30;
+    const auto units = *bytes / gib + (*bytes % gib != 0);
+    std::uint64_t nominalGb = 1;
+    while (nominalGb < units) nominalGb <<= 1;
+    return nominalGb < 1024 ? std::to_wstring(nominalGb) + L" GB"
+        : std::to_wstring(nominalGb / 1024) + L" TB";
 }
 }
 
@@ -36,12 +27,9 @@ std::wstring FormatDisks(const std::vector<Disk>& disks)
     for (const auto& disk : disks)
     {
         if (!disk.solidState) continue;
-        if (!text.empty()) text += L"\r\n\r\n";
+        if (!text.empty()) text += L"\r\n";
         text += disk.model.empty() ? L"未提供名称的 SSD" : disk.model;
-        text += L"\r\n" + Capacity(disk.capacityBytes) + L"  ·  " + Protocol(disk);
-        text += L"\r\n上电 " + (disk.powerHours ? std::to_wstring(*disk.powerHours) + L" 小时" : L"N/A") +
-            L"  ·  " + (disk.powerCounts ? std::to_wstring(*disk.powerCounts) + L" 次" : L"N/A 次");
-        text += L"\r\n累计读取 " + Traffic(disk.dataUnitsReadGb) + L"  ·  写入 " + Traffic(disk.dataUnitsWrittenGb);
+        text += L" · " + NominalCapacity(disk.capacityBytes);
     }
     return text;
 }

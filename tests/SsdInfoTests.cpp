@@ -1,6 +1,5 @@
 #include "../src/Collection.h"
-#include "../src/storage/Smart.h"
-#include <array>
+#include "../src/storage/Disk.h"
 #include <chrono>
 #include <condition_variable>
 #include <iostream>
@@ -24,40 +23,52 @@ void CheckStorage()
     Check(IsExternalStorage(L"SCSI", LR"(uaspstor\disk)", BusTypeScsi), "UASP disk leaked");
     Check(IsExternalStorage(L"USB", L"", BusTypeUnknown), "WMI USB disk leaked");
     Check(!IsExternalStorage(L"SCSI", LR"(SCSI\DISK&VEN_NVME)", BusTypeNvme), "Internal NVMe was rejected");
-    Disk internal, bridge;
-    internal.model = bridge.model = L"Same SSD model";
-    internal.physicalDriveId = 0;
-    bridge.physicalDriveId = 1;
-    internal.pnpId = L"internal";
-    bridge.pnpId = L"bridge";
-    std::vector<Disk> matched{internal, bridge};
-    RemoveExternalDisk(matched, -1, L"BRIDGE");
-    Check(matched.size() == 1 && matched.front().physicalDriveId == 0, "Core USB evidence must also exclude the native row");
-    matched.push_back(bridge);
-    RemoveExternalDisk(matched, 1, {});
-    Check(matched.size() == 1 && matched.front().physicalDriveId == 0, "USB exclusion confused two disks of the same model");
-    std::array<std::uint8_t, 512> log{};
+    Check(!IsExternalStorage(L"SCSI", LR"(SCSI\DISK&VEN_ATA)", BusTypeSata), "Internal SATA was rejected");
+    Check(IsExternalStorage(L"SCSI", LR"(USB4\DISK)", BusTypeNvme), "USB4 tunnel leaked");
+    Check(IsExternalStorage(L"SCSI", LR"(SBP2\DISK)", BusType1394), "FireWire bridge leaked");
     Disk disk;
     disk.model = L"Test NVMe";
-    disk.transferMode = L"PCIe 4.0 x4";
+    disk.solidState = true;
     disk.capacityBytes = 1'000'000'000'000ULL;
-    Check(!DecodeNvmeHealthLog(false, log, disk) && !disk.powerCounts, "Failed SMART read became zero");
-    log[32] = 1;
-    log[48] = 2;
-    log[128] = 0x23;
-    log[129] = 1;
-    Check(DecodeNvmeHealthLog(true, log, disk) && disk.powerHours == 291 && disk.powerCounts == 0,
-        "Power cycles/hours were swapped, truncated or lost");
-    Check(disk.dataUnitsReadGb == 512000.0L / 1073741824.0L &&
-        disk.dataUnitsWrittenGb == 1024000.0L / 1073741824.0L, "NVMe transfer units or direction are wrong");
-    disk.dataUnitsReadGb = 2048;
-    disk.dataUnitsWrittenGb.reset();
     Disk hdd;
     hdd.model = L"Mechanical disk";
     const auto text = FormatDisks({hdd, disk});
-    Check(text.find(hdd.model) == text.npos && text.find(L"NVMe · PCIe 4.0 x4") != text.npos &&
-        text.find(L"1.00 TB") != text.npos && text.find(L"0 次") != text.npos &&
-        text.find(L"2.00 TiB") != text.npos && text.find(L"写入 N/A") != text.npos, "SSD display lost a field or a unit");
+    Check(text == L"Test NVMe · 1 TB", "SSD readout must contain only its name and nominal capacity and exclude HDDs");
+}
+
+void CheckNominalCapacities()
+{
+    Disk disk;
+    disk.solidState = true;
+    disk.model = L"Test SSD";
+    for (const auto& [bytes, expected] : {
+        std::pair{120'034'123'776ULL, L"128 GB"}, std::pair{128'035'676'160ULL, L"128 GB"},
+        std::pair{240'057'409'536ULL, L"256 GB"}, std::pair{256'060'514'304ULL, L"256 GB"},
+        std::pair{500'107'862'016ULL, L"512 GB"}, std::pair{512'110'190'592ULL, L"512 GB"},
+        std::pair{1'000'204'886'016ULL, L"1 TB"}, std::pair{1'024'209'543'168ULL, L"1 TB"},
+        std::pair{2'000'398'934'016ULL, L"2 TB"}, std::pair{2'048'408'248'320ULL, L"2 TB"},
+        std::pair{3'840'000'000'000ULL, L"4 TB"}, std::pair{4'000'787'030'016ULL, L"4 TB"},
+        std::pair{8'001'563'222'016ULL, L"8 TB"}, std::pair{16'000'000'000'000ULL, L"16 TB"}})
+    {
+        disk.capacityBytes = bytes;
+        Check(FormatDisks({disk}) == std::wstring(L"Test SSD · ") + expected, "SSD name or nominal capacity changed");
+    }
+    disk.capacityBytes.reset();
+    Check(FormatDisks({disk}) == L"Test SSD · N/A", "Unknown capacity became an invented capacity");
+    disk.capacityBytes = 0;
+    Check(FormatDisks({disk}) == L"Test SSD · N/A", "Zero capacity became an invented capacity");
+    disk.capacityBytes = 500'107'862'016ULL;
+    Disk second = disk;
+    second.model = L"Second SSD";
+    second.capacityBytes = 1'024'209'543'168ULL;
+    Disk hdd;
+    hdd.capacityBytes = 2'000'398'934'016ULL;
+    Check(FormatDisks({disk, hdd, second}) == L"Test SSD · 512 GB\r\nSecond SSD · 1 TB", "Each SSD must have its own line with its name and nominal capacity");
+    Check(FormatDisks({second, second}) == L"Second SSD · 1 TB\r\nSecond SSD · 1 TB", "Two identical SSDs must remain on separate lines");
+    second.capacityBytes.reset();
+    Check(FormatDisks({disk, second}) == L"Test SSD · 512 GB\r\nSecond SSD · N/A", "One unknown capacity hid another disk");
+    second.model.clear();
+    Check(FormatDisks({second}) == L"未提供名称的 SSD · N/A", "Missing name or capacity was invented");
 }
 
 CollectionUpdate Next(Collection& collection)
@@ -97,7 +108,7 @@ void CheckProgress(bool slowSsd)
     Check(partial.ssdPending == slowSsd && partial.computerPending != slowSsd && !partial.Complete(),
         "The first worker must publish independently");
     if (slowSsd) Check(partial.snapshot.rows.front().value == L"Test CPU" &&
-        partial.snapshot.rows.back().value.find(L"正在读取") != std::wstring::npos, "Missing basic cards while SMART is pending");
+        partial.snapshot.rows.back().value.find(L"正在读取") != std::wstring::npos, "Missing basic information while SSD is pending");
     else Check(partial.snapshot.rows.size() == 1 && partial.snapshot.rows.front().value == L"Test SSD", "SSD result lost");
     Check(!collection.Start(basic, ssd), "A refresh overlapped with a running scan");
     { std::lock_guard lock(mutex); released = true; }
@@ -110,13 +121,13 @@ void CheckProgress(bool slowSsd)
     auto failed = Next(collection);
     if (!failed.Complete()) failed = Next(collection);
     Check(failed.snapshot.rows.front().value == L"Test CPU" && failed.snapshot.rows.back().value == L"N/A" &&
-        !failed.snapshot.diagnostic.empty(), "A SMART failure lost valid data or reused old disk results");
+        !failed.snapshot.diagnostic.empty(), "An SSD query failure lost valid data or reused old disk results");
 }
 }
 
 int main()
 {
-    try { CheckStorage(); CheckProgress(true); CheckProgress(false); }
+    try { CheckStorage(); CheckNominalCapacities(); CheckProgress(true); CheckProgress(false); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     return 0;
 }

@@ -38,7 +38,7 @@ void CheckIcon(HMODULE module, const std::filesystem::path& icon)
     const auto group = Resource(module, 101, RT_GROUP_ICON);
     const auto expected = ReadFile(icon);
     const auto count = Read<std::uint16_t>(expected, 4);
-    Check(count == 8 && Read<std::uint16_t>(group, 4) == count, "Documents icon sizes missing");
+    Check(count == 8 && Read<std::uint16_t>(group, 4) == count, "Desktop Pulse icon sizes missing");
     for (size_t index = 0; index < count; ++index)
     {
         const size_t actualEntry = 6 + index * 14, expectedEntry = 6 + index * 16;
@@ -48,7 +48,7 @@ void CheckIcon(HMODULE module, const std::filesystem::path& icon)
         const auto length = Read<std::uint32_t>(expected, expectedEntry + 8);
         const auto offset = Read<std::uint32_t>(expected, expectedEntry + 12);
         Check(offset <= expected.size() && length <= expected.size() - offset, "Icon image exceeds file");
-        Check(image.size() == length && std::memcmp(image.data(), expected.data() + offset, length) == 0, "Documents icon pixels changed");
+        Check(image.size() == length && std::memcmp(image.data(), expected.data() + offset, length) == 0, "Desktop Pulse icon pixels changed");
     }
 }
 void CheckVersion(const wchar_t* executable)
@@ -61,7 +61,7 @@ void CheckVersion(const wchar_t* executable)
     for (const auto& [key, expected] : {
         std::pair{L"Author", L"sclliang"}, std::pair{L"CompanyName", L"sixunited"},
         std::pair{L"LegalCopyright", L"Copyright (c) 2026 sixunited. Author: sclliang"},
-        std::pair{L"FileVersion", L"3.0.0.0"}})
+        std::pair{L"FileVersion", L"3.0.3.0"}})
     {
         void* value{};
         UINT size{};

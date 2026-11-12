@@ -1,5 +1,6 @@
 * text=auto
 *.ico binary
+*.png binary
 *.exe binary
 *.EXE binary
 *.sys binary
